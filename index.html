@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Untucked Games</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap">
+<link rel="stylesheet" href="style.css">
+</head><body><main>
+<div class="top"><span class="brand">Untucked <i>Games</i></span><span><span id="hi" class="hint"></span> <button class="btn small" id="out" hidden>Sign out</button></span></div>
+
+<section id="login" hidden>
+  <h1>Sign in</h1><p class="sub">Use the username and code you were sent.</p>
+  <label for="u">Username</label><input id="u" autocomplete="username" autocapitalize="none">
+  <label for="c">Code</label><input id="c" type="password" inputmode="numeric" autocomplete="current-password">
+  <p id="lerr" class="err" role="alert"></p>
+  <button class="btn primary block" id="go">Sign in</button>
+</section>
+
+<div id="app" hidden>
+  <p id="msg" class="sub"></p>
+  <section id="poll" hidden></section>
+</div>
+</main>
+<script type="module">
+import {firebaseConfig,emailFor,passFor} from "./firebase-config.js";
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,doc,getDoc,setDoc,onSnapshot,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+const auth=getAuth(initializeApp(firebaseConfig)),db=getFirestore(),$=id=>document.getElementById(id);
+const TIERS=[["win","Win"],["high","High"],["safe","Safe"],["low","Low"],["bottom","Bottom"]];
+const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote"};
+const HELP={placements:"Give everyone a placement for this episode. You can\u2019t place yourself.",lipsync:"Who wins the lip sync? Pick one.",winner:"Who should win? You can\u2019t vote for yourself."};
+let S=null,me=null,picks={},choice=null,saved=false,dirty=false,loadedRound=null,unsub=null,vUnsub=null;
+const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+
+$("go").onclick=async()=>{$("lerr").textContent="";
+  try{await signInWithEmailAndPassword(auth,emailFor($("u").value),passFor($("c").value))}
+  catch{$("lerr").textContent="That username and code don\u2019t match."}};
+$("c").onkeydown=e=>{if(e.key==="Enter")$("go").click()};
+$("out").onclick=()=>signOut(auth);
+
+onAuthStateChanged(auth,async user=>{
+  if(unsub){unsub();unsub=null}if(vUnsub){vUnsub();vUnsub=null}
+  $("login").hidden=!!user;$("app").hidden=!user;$("out").hidden=!user;$("hi").textContent="";
+  if(!user)return;
+  const v=await getDoc(doc(db,"voters",user.uid));
+  if(!v.exists()){$("lerr").textContent="This account isn\u2019t set up to vote.";signOut(auth);return}
+  me={...v.data(),uid:user.uid};$("hi").textContent=me.name;loadedRound=null;
+  vUnsub=onSnapshot(doc(db,"voters",user.uid),s=>{if(s.exists()){me={...s.data(),uid:user.uid};if(S)render()}});
+  unsub=onSnapshot(doc(db,"state","current"),async s=>{
+    S=s.data();
+    if(S&&loadedRound!==S.round){loadedRound=S.round;await loadBallot()}
+    render();
+  });
+});
+
+const opts=()=>S.options.filter(n=>n!==me.name);
+async function loadBallot(){
+  picks={};choice=null;saved=false;dirty=false;
+  if(!S.round)return;
+  const b=await getDoc(doc(db,"ballots","r"+S.round+"_"+me.uid));
+  if(!b.exists())return;
+  saved=true;const d=b.data();
+  Object.entries(d.picks||{}).forEach(([n,t])=>{if(opts().includes(n))picks[n]=t});
+  choice=opts().includes(d.choice)?d.choice:null;
+}
+
+function msg(t){$("msg").textContent=t;$("poll").hidden=true}
+function render(){
+  $("msg").textContent="";
+  if(!S||!S.round)return msg("Nothing is open yet. Check back soon.");
+  if(me.canVote===false)return msg("You\u2019re not voting this round.");
+  if(!S.open)return msg("Voting is closed. Results are posted in the server.");
+  if(S.mode==="lipsync"&&S.options.includes(me.name))return msg("You\u2019re in the lip sync, so you sit this vote out.");
+  const P=$("poll");P.hidden=false;P.innerHTML="";
+  P.append(el("p","kicker","Episode "+S.ep+" \u00b7 "+MODE[S.mode]),el("h1","",S.title),el("p","sub",HELP[S.mode]));
+  const O=opts();
+  if(S.mode==="placements"){
+    O.forEach(n=>{
+      const c=el("div","card"),row=el("div","tiers");c.append(el("div","nm",n),row);
+      TIERS.forEach(([k,l])=>{
+        const b=el("button","tier",l);b.type="button";b.style.setProperty("--c","var(--"+k+")");
+        b.setAttribute("aria-pressed",String(picks[n]===k));
+        b.onclick=()=>{picks[n]=k;dirty=true;row.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));upd()};
+        row.append(b);
+      });
+      P.append(c);
+    });
+  }else{
+    const g=el("div","opts");
+    O.forEach(n=>{
+      const b=el("button","opt",n);b.type="button";b.setAttribute("aria-pressed",String(choice===n));
+      b.onclick=()=>{choice=n;dirty=true;g.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));upd()};
+      g.append(b);
+    });
+    P.append(g);
+  }
+  const foot=el("div"),st=el("p","hint"),btn=el("button","btn primary block");
+  st.id="st";btn.id="save";btn.style.marginTop="16px";btn.type="button";foot.append(st,btn);P.append(foot);
+  btn.onclick=submit;upd();
+}
+function done(){return S.mode==="placements"?O2().every(n=>picks[n]):!!choice}
+function O2(){return opts()}
+function upd(){
+  const n=S.mode==="placements"?O2().filter(x=>picks[x]).length:(choice?1:0),t=S.mode==="placements"?O2().length:1;
+  $("save").textContent=saved?"Update ballot":"Submit ballot";$("save").disabled=!done();
+  $("st").className="hint";
+  $("st").textContent=(S.mode==="placements"?n+" of "+t+" placed. ":"")+(saved&&!dirty?"Ballot saved. You can change it until voting closes.":saved?"You have unsaved changes.":"Not submitted yet.");
+}
+async function submit(){
+  $("save").disabled=true;
+  const data={round:S.round,ep:S.ep,mode:S.mode,uid:me.uid,at:serverTimestamp()};
+  if(S.mode==="placements")data.picks=Object.fromEntries(O2().map(n=>[n,picks[n]]));else data.choice=choice;
+  try{await setDoc(doc(db,"ballots","r"+S.round+"_"+me.uid),data);saved=true;dirty=false;upd()}
+  catch{$("st").className="err";$("st").textContent="Couldn\u2019t save. Voting may have just closed.";$("save").disabled=false}
+}
+</script></body></html>

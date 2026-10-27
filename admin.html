@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Untucked Games admin</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap">
+<link rel="stylesheet" href="style.css">
+</head><body><main class="wide">
+<div class="top"><span class="brand">Untucked <i>Games</i> &middot; Admin</span><button class="btn small" id="out" hidden>Sign out</button></div>
+<section id="login" hidden>
+  <h1>Admin sign in</h1>
+  <label for="e">Email</label><input id="e" type="email" autocomplete="username">
+  <label for="p">Password</label><input id="p" type="password" autocomplete="current-password">
+  <p id="lerr" class="err" role="alert"></p><button class="btn primary block" id="go">Sign in</button>
+</section>
+<div id="app" hidden>
+  <p id="msg" class="sub"></p>
+  <section id="start" hidden><h2>Start the season</h2><p class="hint" style="margin:0 0 12px">Creates the season settings. Existing accounts are kept.</p><button class="btn primary" id="init">Start season</button></section>
+  <section id="poll" hidden></section>
+  <section id="results" hidden></section>
+  <section id="new" hidden></section>
+  <section id="people" hidden></section>
+</div>
+</main>
+<script type="module">
+import {firebaseConfig,emailFor,passFor} from "./firebase-config.js";
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,doc,setDoc,updateDoc,onSnapshot,collection,query,where} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app),$=id=>document.getElementById(id);
+const auth2=getAuth(initializeApp(firebaseConfig,"second")); // makes voter accounts without signing you out
+const stRef=doc(db,"state","current");
+const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote"};
+const TIERS=[["win","Win",5],["high","High",4],["safe","Safe",3],["low","Low",2],["bottom","Bottom",1]];
+let S=null,voters=[],ballots=[],subs=[],bUnsub=null,watched=null,formErr="",castErr="",formInit=false;
+const form={ep:1,mode:"placements",title:"",opts:null};
+const esc=s=>{const d=document.createElement("div");d.textContent=s;return d.innerHTML};
+const ready=()=>S&&S.round!==undefined;
+
+$("go").onclick=async()=>{$("lerr").textContent="";
+  try{await signInWithEmailAndPassword(auth,$("e").value,$("p").value)}catch{$("lerr").textContent="Sign in failed."}};
+$("p").onkeydown=e=>{if(e.key==="Enter")$("go").click()};
+$("out").onclick=()=>signOut(auth);
+$("init").onclick=()=>setDoc(stRef,{ep:1,round:0,mode:"placements",title:"",options:[],open:false});
+
+onAuthStateChanged(auth,user=>{
+  subs.forEach(u=>u());subs=[];if(bUnsub){bUnsub();bUnsub=null}watched=null;
+  $("login").hidden=!!user;$("app").hidden=!user;$("out").hidden=!user;
+  if(!user)return;
+  subs.push(onSnapshot(stRef,s=>{
+    S=s.exists()?s.data():null;$("msg").textContent="";
+    if(ready()){
+      if(!formInit){form.ep=S.ep;formInit=true}
+      if(S.round!==watched){watched=S.round;if(bUnsub)bUnsub();
+        bUnsub=onSnapshot(query(collection(db,"ballots"),where("round","==",S.round)),b=>{ballots=b.docs.map(d=>d.data());renderPoll();renderRes();renderPeople()})}
+    }
+    renderAll();
+  },()=>{$("msg").textContent="This account isn\u2019t the admin, or the rules aren\u2019t published yet."}));
+  subs.push(onSnapshot(collection(db,"voters"),s=>{voters=s.docs.map(d=>({id:d.id,...d.data()}));if(ready()){renderNew();renderPeople();renderRes()}},()=>{}));
+});
+
+function renderAll(){
+  $("start").hidden=ready()||!auth.currentUser;
+  ["poll","new","people"].forEach(i=>$(i).hidden=!ready());
+  if(!ready())return;renderPoll();renderNew();renderPeople();renderRes();
+}
+
+function renderPoll(){
+  const P=$("poll");
+  if(!S.round){P.innerHTML='<h2>No poll yet</h2><p class="hint" style="margin:0">Set one up below.</p>';return}
+  const eligible=voters.filter(v=>v.canVote!==false).length;
+  P.innerHTML='<div class="kicker">Episode '+S.ep+' \u00b7 '+MODE[S.mode]+'</div><h2 style="text-transform:none;letter-spacing:0;font-size:1.3rem">'+esc(S.title)+'</h2>'+
+   '<div class="row"><div class="seg" role="group" aria-label="Voting"><button id="bo" aria-pressed="'+S.open+'">Open</button><button id="bl" aria-pressed="'+!S.open+'">Locked</button></div>'+
+   '<span class="hint">'+ballots.length+' of '+eligible+' ballots in</span></div>'+
+   '<p class="hint">'+(S.open?"Voting is open.":"Voting is locked. Nobody can submit or change a ballot.")+'</p>';
+  $("bo").onclick=()=>updateDoc(stRef,{open:true});$("bl").onclick=()=>updateDoc(stRef,{open:false});
+}
+
+function renderNew(){
+  const game=voters.filter(v=>v.active!==false).map(v=>v.name).sort((a,b)=>a.localeCompare(b));
+  if(!form.opts)form.opts=new Set(game);
+  form.opts.forEach(n=>{if(!game.includes(n))form.opts.delete(n)});
+  const hint={placements:"Everyone checked gets placed by every voter, except that voter themselves.",lipsync:"Check exactly two. The two lip syncers can\u2019t vote this round.",winner:"Voters pick one of the people checked, except themselves."}[form.mode];
+  $("new").innerHTML='<h2>New poll</h2>'+
+   '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end"><div style="width:110px"><label for="fep">Episode</label><input id="fep" type="number" min="1" value="'+form.ep+'"></div>'+
+   '<div style="margin-bottom:12px"><label>Format</label><div class="seg">'+Object.keys(MODE).map(k=>'<button data-m="'+k+'" aria-pressed="'+(form.mode===k)+'">'+MODE[k]+'</button>').join("")+'</div></div></div>'+
+   '<label for="ft">Challenge / description</label><textarea id="ft" placeholder="What are voters judging? They see this at the top of the ballot.">'+esc(form.title)+'</textarea>'+
+   '<label>Who is on this poll</label><div class="checks">'+game.map(n=>'<label><input type="checkbox" data-o="'+esc(n)+'"'+(form.opts.has(n)?" checked":"")+'>'+esc(n)+'</label>').join("")+'</div>'+
+   '<p class="hint" style="margin:0 0 12px">'+hint+' Opening a new poll replaces the current one.</p>'+
+   '<p class="err" role="alert">'+formErr+'</p><button class="btn primary" id="open">Open poll</button>';
+  $("fep").oninput=e=>form.ep=parseInt(e.target.value,10)||1;
+  $("ft").oninput=e=>form.title=e.target.value;
+  $("new").querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{form.mode=b.dataset.m;formErr="";renderNew()});
+  $("new").querySelectorAll("[data-o]").forEach(c=>c.onchange=()=>{c.checked?form.opts.add(c.dataset.o):form.opts.delete(c.dataset.o)});
+  $("open").onclick=async()=>{
+    const o=[...form.opts];formErr="";
+    if(!form.title.trim())formErr="Add a description first.";
+    else if(form.mode==="lipsync"&&o.length!==2)formErr="Check exactly two people for a lip sync.";
+    else if(o.length<2)formErr="Check at least two people.";
+    if(formErr)return renderNew();
+    await updateDoc(stRef,{ep:form.ep,round:(S.round||0)+1,mode:form.mode,title:form.title.trim(),options:o,open:true});
+    form.title="";renderNew();
+  };
+}
+
+function renderPeople(){
+  const done=new Set(ballots.map(b=>b.uid));
+  const rows=voters.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(v=>{
+    const inn=v.active!==false,can=v.canVote!==false;
+    return '<tr><td>'+esc(v.name)+'</td><td>'+esc(v.username)+'</td><td>'+esc(v.code)+'</td>'+
+     '<td class="'+(done.has(v.id)?"ok":"gone")+'">'+(done.has(v.id)?"Voted":can?"Waiting":"\u2014")+'</td>'+
+     '<td><button class="btn small'+(inn?" primary":"")+'" data-a="'+v.id+'" data-on="'+inn+'">'+(inn?"In game":"Out")+'</button></td>'+
+     '<td><button class="btn small'+(can?" primary":"")+'" data-c="'+v.id+'" data-on="'+can+'">'+(can?"Can vote":"Can\u2019t vote")+'</button></td></tr>';
+  }).join("");
+  $("people").innerHTML='<h2>People</h2><div class="scroll"><table><thead><tr><th>Name</th><th>Username</th><th>Code</th><th>This poll</th><th>Contestant</th><th>Voting</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+   '<p class="hint" style="margin:0 0 18px"><b>Contestant</b> controls whether someone can be placed in new polls. <b>Voting</b> controls whether they can submit. Neither deletes the account.</p>'+
+   '<label for="nn">Add a person</label><div class="row" style="align-items:flex-start;flex-wrap:nowrap"><input id="nn" placeholder="Display name" maxlength="24"><input id="nu" placeholder="Username" maxlength="20" autocapitalize="none"><input id="nc" placeholder="4-digit code" inputmode="numeric" maxlength="4"><button class="btn" id="add" style="white-space:nowrap">Add</button></div>'+
+   '<p class="err" role="alert">'+castErr+'</p>';
+  $("people").querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>updateDoc(doc(db,"voters",b.dataset.a),{active:b.dataset.on!=="true"}));
+  $("people").querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>updateDoc(doc(db,"voters",b.dataset.c),{canVote:b.dataset.on!=="true"}));
+  $("add").onclick=addPerson;
+}
+async function addPerson(){
+  castErr="";const name=$("nn").value.trim(),u=$("nu").value.trim(),c=$("nc").value.trim();
+  if(!name||!u||!/^\d{4}$/.test(c)){castErr="Enter a name, a username and a 4-digit code.";return renderPeople()}
+  try{
+    const cr=await createUserWithEmailAndPassword(auth2,emailFor(u),passFor(c));await signOut(auth2);
+    await setDoc(doc(db,"voters",cr.user.uid),{name,username:emailFor(u).split("@")[0],code:c,active:true,canVote:true});
+  }catch(e){castErr=e.code==="auth/email-already-in-use"?"That username is taken.":"Couldn\u2019t create the account."}
+  renderPeople();
+}
+
+function tally(){
+  const bs=ballots.filter(b=>b.mode===S.mode);
+  if(S.mode==="placements")return S.options.map(n=>{
+    const t={win:0,high:0,safe:0,low:0,bottom:0};bs.forEach(b=>{const k=(b.picks||{})[n];if(k in t)t[k]++});
+    const c=Object.values(t).reduce((a,b)=>a+b,0),sc=TIERS.reduce((a,[k,,p])=>a+t[k]*p,0);
+    return {n,t,c,avg:c?sc/c:0};
+  }).sort((a,b)=>b.avg-a.avg);
+  return S.options.map(n=>({n,c:bs.filter(b=>b.choice===n).length})).sort((a,b)=>b.c-a.c);
+}
+function renderRes(){
+  const R=$("results");if(!ready()||!S.round||S.open){R.hidden=true;return}
+  R.hidden=false;const rows=tally(),pl=S.mode==="placements",max=Math.max(1,...rows.map(r=>r.c));
+  R.innerHTML='<h2>Results</h2><div class="scroll"><table><thead><tr><th>Contestant</th>'+
+   (pl?TIERS.map(([k,l])=>'<th title="'+l+'">'+l[0]+'</th>').join("")+'<th>Avg</th>':'<th>Votes</th><th></th>')+'</tr></thead><tbody>'+
+   rows.map(r=>'<tr><td>'+esc(r.n)+'</td>'+(pl?TIERS.map(([k])=>'<td class="num">'+r.t[k]+'</td>').join("")+'<td class="num">'+r.avg.toFixed(2)+'</td>':
+     '<td class="num">'+r.c+'</td><td style="width:40%"><div class="bar" style="width:'+Math.round(r.c/max*100)+'%"></div></td>')+'</tr>').join("")+'</tbody></table></div>'+
+   '<p class="hint" style="margin:0 0 12px">'+(pl?"W / H / S / L / B are Win, High, Safe, Low, Bottom. Avg runs from 5 (all Win) to 1 (all Bottom). ":"")+'What it means is up to you. Post the outcome in the server.</p>'+
+   '<button class="btn" id="copy">Copy for Discord</button>';
+  $("copy").onclick=async()=>{
+    const txt="Episode "+S.ep+" \u00b7 "+MODE[S.mode]+"\n"+rows.map(r=>pl?r.n+": "+TIERS.map(([k,l])=>l[0]+r.t[k]).join(" ")+" (avg "+r.avg.toFixed(2)+")":r.n+": "+r.c+" vote"+(r.c===1?"":"s")).join("\n");
+    await navigator.clipboard.writeText(txt);$("copy").textContent="Copied";
+  };
+}
+</script></body></html>

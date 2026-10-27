@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function admin() { return request.auth != null && request.auth.uid == 'h6PSsO37hIUiMPnRxiaDmFrIlnf1'; }
+    function st() { return get(/databases/$(database)/documents/state/current).data; }
+    function me() { return get(/databases/$(database)/documents/voters/$(request.auth.uid)).data; }
+
+    function validPlacements() {
+      let p = request.resource.data.picks; let o = st().options; let n = me().name;
+      return p.keys().toSet().hasOnly(o) && !(n in p.keys())
+        && p.size() == (n in o ? o.size() - 1 : o.size())
+        && p.values().toSet().hasOnly(['win', 'high', 'safe', 'low', 'bottom']);
+    }
+    function validChoice() {
+      let c = request.resource.data.choice; let o = st().options; let n = me().name;
+      return c in o && c != n && !(st().mode == 'lipsync' && n in o);
+    }
+
+    match /voters/{id} {
+      allow read: if admin() || (request.auth != null && request.auth.uid == id);
+      allow write: if admin();
+    }
+    match /state/current { allow read: if request.auth != null; allow write: if admin(); }
+    match /ballots/{id} {
+      allow read: if admin() || (request.auth != null && id == 'r' + string(st().round) + '_' + request.auth.uid);
+      allow create, update: if request.auth != null
+        && id == 'r' + string(st().round) + '_' + request.auth.uid
+        && st().open == true
+        && me().get('canVote', true) == true
+        && request.resource.data.round == st().round
+        && request.resource.data.mode == st().mode
+        && (st().mode == 'placements' ? validPlacements() : validChoice());
+    }
+  }
+}
