@@ -79,6 +79,7 @@ function render(){
   if(!S.open)return msg("Voting is closed. Results are posted in the server.");
   if(S.mode==="lipsync"&&S.options.includes(me.name))return msg("You\u2019re in the lip sync, so you sit this vote out.");
   const P=$("poll");P.hidden=false;P.innerHTML="";
+  if(S.mode==="placements"&&!steps().length){P.hidden=true;return msg("This poll was opened before the update and has no placement counts. The admin needs to open a new poll.")}
   if(S.mode==="placements")return stepper(P);
   P.append(el("p","kicker","Episode "+S.ep+" \u00b7 "+MODE[S.mode]),el("h1","",S.title),el("p","sub",HELP[S.mode]));
   const g=el("div","opts");

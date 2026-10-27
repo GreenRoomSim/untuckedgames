@@ -72,7 +72,7 @@ function renderPoll(){
   P.innerHTML='<div class="kicker">Episode '+S.ep+' \u00b7 '+MODE[S.mode]+'</div><h2 style="text-transform:none;letter-spacing:0;font-size:1.3rem">'+esc(S.title)+'</h2>'+
    '<div class="row"><div class="seg" role="group" aria-label="Voting"><button id="bo" aria-pressed="'+S.open+'">Open</button><button id="bl" aria-pressed="'+!S.open+'">Locked</button></div>'+
    '<span class="hint">'+ballots.length+' of '+eligible+' ballots in</span></div>'+
-   '<p class="hint">'+(S.open?"Voting is open.":"Voting is locked. Nobody can submit or change a ballot.")+'</p>';
+   '<p class="hint">'+(S.open?"Voting is open.":"Voting is locked. Nobody can submit or change a ballot.")+'</p>'+(S.mode==="placements"&&!(S.quotas&&S.quotas.win)?'<p class="err">This poll has no placement counts, so voters can\u2019t vote on it. Open a new poll below.</p>':"");
   $("bo").onclick=()=>updateDoc(stRef,{open:true});$("bl").onclick=()=>updateDoc(stRef,{open:false});
 }
 
