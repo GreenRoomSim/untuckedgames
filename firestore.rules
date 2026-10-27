@@ -6,10 +6,11 @@ service cloud.firestore {
     function me() { return get(/databases/$(database)/documents/voters/$(request.auth.uid)).data; }
 
     function validPlacements() {
-      let p = request.resource.data.picks; let o = st().options; let n = me().name;
-      return p.keys().toSet().hasOnly(o) && !(n in p.keys())
-        && p.size() == (n in o ? o.size() - 1 : o.size())
-        && p.values().toSet().hasOnly(['win', 'high', 'safe', 'low', 'bottom']);
+      let d = request.resource.data; let q = st().quotas; let o = st().options; let n = me().name;
+      let all = d.win.concat(d.high).concat(d.low).concat(d.bottom);
+      return d.win.size() == q.win && d.high.size() == q.high
+        && d.low.size() == q.low && d.bottom.size() == q.bottom
+        && all.toSet().hasOnly(o) && !(n in all) && all.toSet().size() == all.size();
     }
     function validChoice() {
       let c = request.resource.data.choice; let o = st().options; let n = me().name;

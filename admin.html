@@ -32,7 +32,8 @@ const stRef=doc(db,"state","current");
 const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote"};
 const TIERS=[["win","Win",5],["high","High",4],["safe","Safe",3],["low","Low",2],["bottom","Bottom",1]];
 let S=null,voters=[],ballots=[],subs=[],bUnsub=null,watched=null,formErr="",castErr="",formInit=false;
-const form={ep:1,mode:"placements",title:"",opts:null};
+const form={ep:1,mode:"placements",title:"",opts:null,q:{win:1,high:2,low:1,bottom:2},qt:false};
+const sugg=N=>({win:1,high:N>=6?2:N>=4?1:0,low:N>=4?1:0,bottom:N>=4?2:N>=2?1:0});
 const esc=s=>{const d=document.createElement("div");d.textContent=s;return d.innerHTML};
 const ready=()=>S&&S.round!==undefined;
 
@@ -79,26 +80,35 @@ function renderNew(){
   const game=voters.filter(v=>v.active!==false).map(v=>v.name).sort((a,b)=>a.localeCompare(b));
   if(!form.opts)form.opts=new Set(game);
   form.opts.forEach(n=>{if(!game.includes(n))form.opts.delete(n)});
+  if(!form.qt)form.q=sugg(form.opts.size);
   const hint={placements:"Everyone checked gets placed by every voter, except that voter themselves.",lipsync:"Check exactly two. The two lip syncers can\u2019t vote this round.",winner:"Voters pick one of the people checked, except themselves."}[form.mode];
+  const pl=form.mode==="placements";
+  const qf=(k,l)=>'<div style="width:96px"><label for="q-'+k+'">'+l+'</label><input id="q-'+k+'" data-q="'+k+'" type="number" min="0" max="'+(k==="win"?2:9)+'" value="'+form.q[k]+'"></div>';
   $("new").innerHTML='<h2>New poll</h2>'+
    '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end"><div style="width:110px"><label for="fep">Episode</label><input id="fep" type="number" min="1" value="'+form.ep+'"></div>'+
    '<div style="margin-bottom:12px"><label>Format</label><div class="seg">'+Object.keys(MODE).map(k=>'<button data-m="'+k+'" aria-pressed="'+(form.mode===k)+'">'+MODE[k]+'</button>').join("")+'</div></div></div>'+
    '<label for="ft">Challenge / description</label><textarea id="ft" placeholder="What are voters judging? They see this at the top of the ballot.">'+esc(form.title)+'</textarea>'+
    '<label>Who is on this poll</label><div class="checks">'+game.map(n=>'<label><input type="checkbox" data-o="'+esc(n)+'"'+(form.opts.has(n)?" checked":"")+'>'+esc(n)+'</label>').join("")+'</div>'+
+   (pl?'<label>How many of each?</label><div style="display:flex;gap:10px;flex-wrap:wrap">'+qf("win","Winners")+qf("high","Highs")+qf("low","Lows")+qf("bottom","Bottoms")+'</div><p class="hint" id="qi" style="margin:-4px 0 12px"></p>':"")+
    '<p class="hint" style="margin:0 0 12px">'+hint+' Opening a new poll replaces the current one.</p>'+
    '<p class="err" role="alert">'+formErr+'</p><button class="btn primary" id="open">Open poll</button>';
+  const info=()=>{const s=form.q.win+form.q.high+form.q.low+form.q.bottom,N=form.opts.size;if($("qi"))$("qi").textContent="Safe is automatic. "+Math.max(0,N-s)+" people are Safe on a full ballot. Winners 2 means a double win."};
+  info();
   $("fep").oninput=e=>form.ep=parseInt(e.target.value,10)||1;
   $("ft").oninput=e=>form.title=e.target.value;
   $("new").querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{form.mode=b.dataset.m;formErr="";renderNew()});
-  $("new").querySelectorAll("[data-o]").forEach(c=>c.onchange=()=>{c.checked?form.opts.add(c.dataset.o):form.opts.delete(c.dataset.o)});
+  $("new").querySelectorAll("[data-o]").forEach(c=>c.onchange=()=>{c.checked?form.opts.add(c.dataset.o):form.opts.delete(c.dataset.o);if(!form.qt){form.q=sugg(form.opts.size);["win","high","low","bottom"].forEach(k=>{const i=$("q-"+k);if(i)i.value=form.q[k]})}info()});
+  $("new").querySelectorAll("[data-q]").forEach(i=>i.oninput=()=>{form.q[i.dataset.q]=Math.max(0,parseInt(i.value,10)||0);form.qt=true;info()});
   $("open").onclick=async()=>{
-    const o=[...form.opts];formErr="";
+    const o=[...form.opts],q=form.q,s=q.win+q.high+q.low+q.bottom;formErr="";
     if(!form.title.trim())formErr="Add a description first.";
     else if(form.mode==="lipsync"&&o.length!==2)formErr="Check exactly two people for a lip sync.";
     else if(o.length<2)formErr="Check at least two people.";
+    else if(pl&&(q.win<1||q.win>2))formErr="Winners must be 1 or 2.";
+    else if(pl&&s>o.length-1)formErr="Too many placements. Voters who are on the poll can\u2019t place themselves, so the total can\u2019t pass "+(o.length-1)+".";
     if(formErr)return renderNew();
-    await updateDoc(stRef,{ep:form.ep,round:(S.round||0)+1,mode:form.mode,title:form.title.trim(),options:o,open:true});
-    form.title="";renderNew();
+    await updateDoc(stRef,{ep:form.ep,round:(S.round||0)+1,mode:form.mode,title:form.title.trim(),options:o,open:true,quotas:pl?{...q}:{win:0,high:0,low:0,bottom:0}});
+    form.title="";form.qt=false;renderNew();
   };
 }
 
@@ -131,24 +141,31 @@ async function addPerson(){
 
 function tally(){
   const bs=ballots.filter(b=>b.mode===S.mode);
-  if(S.mode==="placements")return S.options.map(n=>{
-    const t={win:0,high:0,safe:0,low:0,bottom:0};bs.forEach(b=>{const k=(b.picks||{})[n];if(k in t)t[k]++});
-    const c=Object.values(t).reduce((a,b)=>a+b,0),sc=TIERS.reduce((a,[k,,p])=>a+t[k]*p,0);
-    return {n,t,c,avg:c?sc/c:0};
-  }).sort((a,b)=>b.avg-a.avg);
+  if(S.mode==="placements"){
+    const nameOf=id=>(voters.find(v=>v.id===id)||{}).name;
+    return S.options.map(n=>{
+      const t={win:0,high:0,safe:0,low:0,bottom:0};let c=0;
+      bs.forEach(b=>{if(nameOf(b.uid)===n)return;c++;
+        const has=k=>(b[k]||[]).includes(n);
+        t[has("win")?"win":has("high")?"high":has("low")?"low":has("bottom")?"bottom":"safe"]++});
+      const pts=TIERS.reduce((a,[k,,p])=>a+t[k]*p,0);
+      return {n,t,c,pts,avg:c?pts/c:0};
+    }).sort((a,b)=>b.pts-a.pts||b.avg-a.avg);
+  }
   return S.options.map(n=>({n,c:bs.filter(b=>b.choice===n).length})).sort((a,b)=>b.c-a.c);
 }
 function renderRes(){
   const R=$("results");if(!ready()||!S.round||S.open){R.hidden=true;return}
   R.hidden=false;const rows=tally(),pl=S.mode==="placements",max=Math.max(1,...rows.map(r=>r.c));
+  const tie=i=>pl&&((i>0&&rows[i].pts===rows[i-1].pts)||(i<rows.length-1&&rows[i].pts===rows[i+1].pts));
   R.innerHTML='<h2>Results</h2><div class="scroll"><table><thead><tr><th>Contestant</th>'+
-   (pl?TIERS.map(([k,l])=>'<th title="'+l+'">'+l[0]+'</th>').join("")+'<th>Avg</th>':'<th>Votes</th><th></th>')+'</tr></thead><tbody>'+
-   rows.map(r=>'<tr><td>'+esc(r.n)+'</td>'+(pl?TIERS.map(([k])=>'<td class="num">'+r.t[k]+'</td>').join("")+'<td class="num">'+r.avg.toFixed(2)+'</td>':
+   (pl?TIERS.map(([k,l])=>'<th title="'+l+'">'+l[0]+'</th>').join("")+'<th>Pts</th><th title="Points per ballot">Avg</th>':'<th>Votes</th><th></th>')+'</tr></thead><tbody>'+
+   rows.map((r,i)=>'<tr><td>'+esc(r.n)+(tie(i)?' <span class="hint">tie</span>':'')+'</td>'+(pl?TIERS.map(([k])=>'<td class="num">'+r.t[k]+'</td>').join("")+'<td class="num"><b>'+r.pts+'</b></td><td class="num">'+r.avg.toFixed(2)+'</td>':
      '<td class="num">'+r.c+'</td><td style="width:40%"><div class="bar" style="width:'+Math.round(r.c/max*100)+'%"></div></td>')+'</tr>').join("")+'</tbody></table></div>'+
-   '<p class="hint" style="margin:0 0 12px">'+(pl?"W / H / S / L / B are Win, High, Safe, Low, Bottom. Avg runs from 5 (all Win) to 1 (all Bottom). ":"")+'What it means is up to you. Post the outcome in the server.</p>'+
+   '<p class="hint" style="margin:0 0 12px">'+(pl?"Win 5, High 4, Safe 3, Low 2, Bottom 1, added up across all ballots. Highest total is first. Avg is points per ballot, which matters if ballot counts differ. Ties are flagged for you to settle. ":"")+'Post the outcome in the server.</p>'+
    '<button class="btn" id="copy">Copy for Discord</button>';
   $("copy").onclick=async()=>{
-    const txt="Episode "+S.ep+" \u00b7 "+MODE[S.mode]+"\n"+rows.map(r=>pl?r.n+": "+TIERS.map(([k,l])=>l[0]+r.t[k]).join(" ")+" (avg "+r.avg.toFixed(2)+")":r.n+": "+r.c+" vote"+(r.c===1?"":"s")).join("\n");
+    const txt="Episode "+S.ep+" \u00b7 "+MODE[S.mode]+"\n"+rows.map((r,i)=>(i+1)+". "+(pl?r.n+": "+r.pts+" pts ("+TIERS.map(([k,l])=>l[0]+r.t[k]).join(" ")+")":r.n+": "+r.c+" vote"+(r.c===1?"":"s"))).join("\n");
     await navigator.clipboard.writeText(txt);$("copy").textContent="Copied";
   };
 }

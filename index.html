@@ -26,10 +26,11 @@ import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,doc,getDoc,setDoc,onSnapshot,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 const auth=getAuth(initializeApp(firebaseConfig)),db=getFirestore(),$=id=>document.getElementById(id);
-const TIERS=[["win","Win"],["high","High"],["safe","Safe"],["low","Low"],["bottom","Bottom"]];
 const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote"};
-const HELP={placements:"Give everyone a placement for this episode. You can\u2019t place yourself.",lipsync:"Who wins the lip sync? Pick one.",winner:"Who should win? You can\u2019t vote for yourself."};
-let S=null,me=null,picks={},choice=null,saved=false,dirty=false,loadedRound=null,unsub=null,vUnsub=null;
+const HELP={lipsync:"Who wins the lip sync? Pick one.",winner:"Who should win? You can\u2019t vote for yourself."};
+const ORDER=["win","high","low","bottom"],LABEL={win:"Win",high:"High",safe:"Safe",low:"Low",bottom:"Bottom"};
+const calm=matchMedia("(prefers-reduced-motion: reduce)").matches;
+let S=null,me=null,sel={win:[],high:[],low:[],bottom:[]},choice=null,step=0,added=null,saved=false,dirty=false,loadedRound=null,unsub=null,vUnsub=null;
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
 
 $("go").onclick=async()=>{$("lerr").textContent="";
@@ -54,14 +55,20 @@ onAuthStateChanged(auth,async user=>{
 });
 
 const opts=()=>S.options.filter(n=>n!==me.name);
+const Q=()=>S.quotas||{};
+const steps=()=>ORDER.filter(k=>Q()[k]>0);
+const placed=()=>ORDER.flatMap(k=>sel[k]);
+const pool=()=>opts().filter(n=>!placed().includes(n));
+const complete=()=>S.mode==="placements"?steps().every(k=>sel[k].length===Q()[k]):!!choice;
+
 async function loadBallot(){
-  picks={};choice=null;saved=false;dirty=false;
+  sel={win:[],high:[],low:[],bottom:[]};choice=null;saved=false;dirty=false;step=0;added=null;
   if(!S.round)return;
   const b=await getDoc(doc(db,"ballots","r"+S.round+"_"+me.uid));
   if(!b.exists())return;
   saved=true;const d=b.data();
-  Object.entries(d.picks||{}).forEach(([n,t])=>{if(opts().includes(n))picks[n]=t});
-  choice=opts().includes(d.choice)?d.choice:null;
+  if(S.mode==="placements"){ORDER.forEach(k=>{sel[k]=(d[k]||[]).filter(n=>opts().includes(n))});if(complete())step=steps().length}
+  else choice=opts().includes(d.choice)?d.choice:null;
 }
 
 function msg(t){$("msg").textContent=t;$("poll").hidden=true}
@@ -72,45 +79,90 @@ function render(){
   if(!S.open)return msg("Voting is closed. Results are posted in the server.");
   if(S.mode==="lipsync"&&S.options.includes(me.name))return msg("You\u2019re in the lip sync, so you sit this vote out.");
   const P=$("poll");P.hidden=false;P.innerHTML="";
+  if(S.mode==="placements")return stepper(P);
   P.append(el("p","kicker","Episode "+S.ep+" \u00b7 "+MODE[S.mode]),el("h1","",S.title),el("p","sub",HELP[S.mode]));
-  const O=opts();
-  if(S.mode==="placements"){
-    O.forEach(n=>{
-      const c=el("div","card"),row=el("div","tiers");c.append(el("div","nm",n),row);
-      TIERS.forEach(([k,l])=>{
-        const b=el("button","tier",l);b.type="button";b.style.setProperty("--c","var(--"+k+")");
-        b.setAttribute("aria-pressed",String(picks[n]===k));
-        b.onclick=()=>{picks[n]=k;dirty=true;row.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));upd()};
-        row.append(b);
-      });
-      P.append(c);
-    });
-  }else{
-    const g=el("div","opts");
-    O.forEach(n=>{
-      const b=el("button","opt",n);b.type="button";b.setAttribute("aria-pressed",String(choice===n));
-      b.onclick=()=>{choice=n;dirty=true;g.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));upd()};
-      g.append(b);
-    });
-    P.append(g);
-  }
-  const foot=el("div"),st=el("p","hint"),btn=el("button","btn primary block");
-  st.id="st";btn.id="save";btn.style.marginTop="16px";btn.type="button";foot.append(st,btn);P.append(foot);
-  btn.onclick=submit;upd();
+  const g=el("div","opts");
+  opts().forEach(n=>{
+    const b=el("button","opt",n);b.type="button";b.setAttribute("aria-pressed",String(choice===n));
+    b.onclick=()=>{choice=n;dirty=true;g.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));$("save").disabled=false;status()};
+    g.append(b);
+  });
+  P.append(g);footer(P);
 }
-function done(){return S.mode==="placements"?O2().every(n=>picks[n]):!!choice}
-function O2(){return opts()}
-function upd(){
-  const n=S.mode==="placements"?O2().filter(x=>picks[x]).length:(choice?1:0),t=S.mode==="placements"?O2().length:1;
-  $("save").textContent=saved?"Update ballot":"Submit ballot";$("save").disabled=!done();
+
+function title(k){const q=Q()[k];
+  return k==="win"?(q>1?"Select your winners":"Select your winner"):k==="high"?(q>1?"Select your highs":"Select your high"):
+    k==="low"?(q>1?"Select your lows":"Select your low"):(q>1?"Select your bottom "+q:"Select your bottom");}
+
+function burst(host,color){
+  for(let n=0;n<26;n++){const s=el("span","cf");
+    s.style.setProperty("--dx",(Math.random()*260-130)+"px");s.style.setProperty("--dy",(Math.random()*-170-20)+"px");
+    s.style.setProperty("--r",(Math.random()*720-360)+"deg");s.style.setProperty("--cc",["#fff","#ffd700",color,"#add8e6"][n%4]);
+    host.append(s);setTimeout(()=>s.remove(),1000);}
+}
+
+function stepper(P){
+  const S_=steps(),total=S_.length;
+  if(step>=total)return review(P);
+  const k=S_[step],q=Q()[k],cls=k==="win"&&q>1?"dwin":k;
+  P.append(el("p","kicker","Episode "+S.ep+" \u00b7 Step "+(step+1)+" of "+total),el("h1","",title(k)));
+  if(step===0)P.append(el("p","sub",S.title));
+  const stage=el("div","stage");
+  sel[k].forEach(n=>{
+    const b=el("button","pick "+cls+(n===added?" new":""));b.type="button";
+    if(cls==="dwin")b.append(el("small","","Double win"));else if(k==="win")b.append(el("small","","Winner"));
+    b.append(document.createTextNode(n));b.setAttribute("aria-label","Remove "+n);
+    b.onclick=()=>{sel[k]=sel[k].filter(x=>x!==n);dirty=true;added=null;render()};
+    stage.append(b);
+    if(n===added&&k==="win"&&!calm)burst(b,cls==="dwin"?"#00008b":"#4169e1");
+  });
+  for(let n=sel[k].length;n<q;n++)stage.append(el("div","slot","?"));
+  P.append(stage);added=null;
+  const full=sel[k].length===q,pl=el("div","pool");
+  pool().forEach(n=>{
+    const b=el("button","cand",n);b.type="button";b.disabled=full;
+    b.onclick=()=>{sel[k].push(n);dirty=true;added=n;render()};
+    pl.append(b);
+  });
+  P.append(pl,el("p","hint",sel[k].length+" of "+q+" chosen. Tap a chosen name to take it back."));
+  const nav=el("div","nav"),back=el("button","btn","Back"),next=el("button","btn primary",step===total-1?"Review":"Next");
+  back.type=next.type="button";back.hidden=step===0;next.disabled=!full;
+  back.onclick=()=>{step--;render()};next.onclick=()=>{step++;render()};
+  nav.append(back,next);P.append(nav);
+}
+
+function review(P){
+  P.append(el("p","kicker","Episode "+S.ep+" \u00b7 Your lineup"),el("h1","","Check your ballot"));
+  const groups=[...ORDER.slice(0,2),"safe",...ORDER.slice(2)].filter(k=>k==="safe"||Q()[k]>0);
+  groups.forEach(k=>{
+    const names=k==="safe"?pool():sel[k],g=el("div","grp"),h=el("div","row");
+    h.append(el("strong","",LABEL[k]+(k==="win"&&Q().win>1?" (double)":"")));
+    if(k!=="safe"){const e=el("button","btn small","Edit");e.type="button";e.onclick=()=>{step=steps().indexOf(k);render()};h.append(e)}
+    const chips=el("div","chips");
+    names.forEach((n,j)=>{const c=el("span","pick sm "+(k==="win"&&Q().win>1?"dwin":k),n);if(!calm)c.style.animation="pop .4s cubic-bezier(.2,1.5,.4,1) both";c.style.animationDelay=(j*60)+"ms";chips.append(c)});
+    if(!names.length)chips.append(el("span","hint","Nobody"));
+    g.append(h,chips);P.append(g);
+  });
+  const back=el("button","btn","Back");back.type="button";back.onclick=()=>{step=steps().length-1;render()};
+  footer(P,back);
+}
+
+function footer(P,back){
+  const st=el("p","hint"),btn=el("button","btn primary");
+  st.id="st";btn.id="save";btn.type="button";btn.onclick=submit;
+  const nav=el("div","nav");if(back)nav.append(back);nav.append(btn);
+  P.append(st,nav);status();
+}
+function status(){
+  $("save").textContent=saved?"Update ballot":"Submit ballot";$("save").disabled=!complete();
   $("st").className="hint";
-  $("st").textContent=(S.mode==="placements"?n+" of "+t+" placed. ":"")+(saved&&!dirty?"Ballot saved. You can change it until voting closes.":saved?"You have unsaved changes.":"Not submitted yet.");
+  $("st").textContent=saved&&!dirty?"Ballot saved. You can change it until voting closes.":saved?"You have unsaved changes.":"Not submitted yet.";
 }
 async function submit(){
   $("save").disabled=true;
   const data={round:S.round,ep:S.ep,mode:S.mode,uid:me.uid,at:serverTimestamp()};
-  if(S.mode==="placements")data.picks=Object.fromEntries(O2().map(n=>[n,picks[n]]));else data.choice=choice;
-  try{await setDoc(doc(db,"ballots","r"+S.round+"_"+me.uid),data);saved=true;dirty=false;upd()}
+  if(S.mode==="placements")ORDER.forEach(k=>data[k]=sel[k]);else data.choice=choice;
+  try{await setDoc(doc(db,"ballots","r"+S.round+"_"+me.uid),data);saved=true;dirty=false;status()}
   catch{$("st").className="err";$("st").textContent="Couldn\u2019t save. Voting may have just closed.";$("save").disabled=false}
 }
 </script></body></html>
