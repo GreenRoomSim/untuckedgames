@@ -68,7 +68,7 @@ function renderAll(){
 function renderPoll(){
   const P=$("poll");
   if(!S.round){P.innerHTML='<h2>No poll yet</h2><p class="hint" style="margin:0">Set one up below.</p>';return}
-  const eligible=voters.filter(v=>v.canVote!==false).length;
+  const eligible=voters.filter(v=>v.canVote!==false&&!(S.mode==="lipsync"&&S.options.includes(v.name))).length;
   P.innerHTML='<div class="kicker">Episode '+S.ep+' \u00b7 '+MODE[S.mode]+'</div><h2 style="text-transform:none;letter-spacing:0;font-size:1.3rem">'+esc(S.title)+'</h2>'+
    '<div class="row"><div class="seg" role="group" aria-label="Voting"><button id="bo" aria-pressed="'+S.open+'">Open</button><button id="bl" aria-pressed="'+!S.open+'">Locked</button></div>'+
    '<span class="hint">'+ballots.length+' of '+eligible+' ballots in</span></div>'+
@@ -81,7 +81,7 @@ function renderNew(){
   if(!form.opts)form.opts=new Set(game);
   form.opts.forEach(n=>{if(!game.includes(n))form.opts.delete(n)});
   if(!form.qt)form.q=sugg(form.opts.size);
-  const hint={placements:"Everyone checked gets placed by every voter, except that voter themselves.",lipsync:"Check exactly two. The two lip syncers can\u2019t vote this round.",winner:"Voters pick one of the people checked, except themselves."}[form.mode];
+  const hint={placements:"Everyone checked gets placed by every voter, except that voter themselves.",lipsync:"Check two or three. The lip syncers can\u2019t vote this round. With three, voters choose one or two winners.",winner:"Voters pick one of the people checked, except themselves."}[form.mode];
   const pl=form.mode==="placements";
   const qf=(k,l)=>'<div style="width:96px"><label for="q-'+k+'">'+l+'</label><input id="q-'+k+'" data-q="'+k+'" type="number" min="0" max="'+(k==="win"?2:9)+'" value="'+form.q[k]+'"></div>';
   $("new").innerHTML='<h2>New poll</h2>'+
@@ -102,7 +102,7 @@ function renderNew(){
   $("open").onclick=async()=>{
     const o=[...form.opts],q=form.q,s=q.win+q.high+q.low+q.bottom;formErr="";
     if(!form.title.trim())formErr="Add a description first.";
-    else if(form.mode==="lipsync"&&o.length!==2)formErr="Check exactly two people for a lip sync.";
+    else if(form.mode==="lipsync"&&(o.length<2||o.length>3))formErr="Check two or three people for a lip sync.";
     else if(o.length<2)formErr="Check at least two people.";
     else if(pl&&(q.win<1||q.win>2))formErr="Winners must be 1 or 2.";
     else if(pl&&s>o.length-1)formErr="Too many placements. Voters who are on the poll can\u2019t place themselves, so the total can\u2019t pass "+(o.length-1)+".";
@@ -152,7 +152,7 @@ function tally(){
       return {n,t,c,pts,avg:c?pts/c:0};
     }).sort((a,b)=>b.pts-a.pts||b.avg-a.avg);
   }
-  return S.options.map(n=>({n,c:bs.filter(b=>b.choice===n).length})).sort((a,b)=>b.c-a.c);
+  return S.options.map(n=>({n,c:bs.filter(b=>b.choice===n||(b.choices||[]).includes(n)).length})).sort((a,b)=>b.c-a.c);
 }
 function renderRes(){
   const R=$("results");if(!ready()||!S.round||S.open){R.hidden=true;return}
@@ -162,7 +162,7 @@ function renderRes(){
    (pl?TIERS.map(([k,l])=>'<th title="'+l+'">'+l[0]+'</th>').join("")+'<th>Pts</th><th title="Points per ballot">Avg</th>':'<th>Votes</th><th></th>')+'</tr></thead><tbody>'+
    rows.map((r,i)=>'<tr><td>'+esc(r.n)+(tie(i)?' <span class="hint">tie</span>':'')+'</td>'+(pl?TIERS.map(([k])=>'<td class="num">'+r.t[k]+'</td>').join("")+'<td class="num"><b>'+r.pts+'</b></td><td class="num">'+r.avg.toFixed(2)+'</td>':
      '<td class="num">'+r.c+'</td><td style="width:40%"><div class="bar" style="width:'+Math.round(r.c/max*100)+'%"></div></td>')+'</tr>').join("")+'</tbody></table></div>'+
-   '<p class="hint" style="margin:0 0 12px">'+(pl?"Win 5, High 4, Safe 3, Low 2, Bottom 1, added up across all ballots. Highest total is first. Avg is points per ballot, which matters if ballot counts differ. Ties are flagged for you to settle. ":"")+'Post the outcome in the server.</p>'+
+   '<p class="hint" style="margin:0 0 12px">'+(pl?"Win 5, High 4, Safe 3, Low 2, Bottom 1, added up across all ballots. Highest total is first. Avg is points per ballot, which matters if ballot counts differ. Ties are flagged for you to settle. ":"")+(S.mode==="lipsync"?"Voters could pick one or two winners, so votes can add up to more than the ballot count. ":"")+'Post the outcome in the server.</p>'+
    '<button class="btn" id="copy">Copy for Discord</button>';
   $("copy").onclick=async()=>{
     const txt="Episode "+S.ep+" \u00b7 "+MODE[S.mode]+"\n"+rows.map((r,i)=>(i+1)+". "+(pl?r.n+": "+r.pts+" pts ("+TIERS.map(([k,l])=>l[0]+r.t[k]).join(" ")+")":r.n+": "+r.c+" vote"+(r.c===1?"":"s"))).join("\n");

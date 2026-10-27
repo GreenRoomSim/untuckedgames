@@ -27,10 +27,10 @@ import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "htt
 import {getFirestore,doc,getDoc,setDoc,onSnapshot,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 const auth=getAuth(initializeApp(firebaseConfig)),db=getFirestore(),$=id=>document.getElementById(id);
 const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote"};
-const HELP={lipsync:"Who wins the lip sync? Pick one.",winner:"Who should win? You can\u2019t vote for yourself."};
+const HELP={winner:"Who should win? You can\u2019t vote for yourself."};
 const ORDER=["win","high","low","bottom"],LABEL={win:"Win",high:"High",safe:"Safe",low:"Low",bottom:"Bottom"};
 const calm=matchMedia("(prefers-reduced-motion: reduce)").matches;
-let S=null,me=null,sel={win:[],high:[],low:[],bottom:[]},choice=null,step=0,added=null,saved=false,dirty=false,loadedRound=null,unsub=null,vUnsub=null;
+let S=null,me=null,sel={win:[],high:[],low:[],bottom:[]},choice=null,lw=[],lcount=1,step=0,added=null,saved=false,dirty=false,loadedRound=null,unsub=null,vUnsub=null;
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
 
 $("go").onclick=async()=>{$("lerr").textContent="";
@@ -59,15 +59,16 @@ const Q=()=>S.quotas||{};
 const steps=()=>ORDER.filter(k=>Q()[k]>0);
 const placed=()=>ORDER.flatMap(k=>sel[k]);
 const pool=()=>opts().filter(n=>!placed().includes(n));
-const complete=()=>S.mode==="placements"?steps().every(k=>sel[k].length===Q()[k]):!!choice;
+const complete=()=>S.mode==="placements"?steps().every(k=>sel[k].length===Q()[k]):S.mode==="lipsync"?lw.length===lcount:!!choice;
 
 async function loadBallot(){
-  sel={win:[],high:[],low:[],bottom:[]};choice=null;saved=false;dirty=false;step=0;added=null;
+  sel={win:[],high:[],low:[],bottom:[]};choice=null;lw=[];lcount=1;saved=false;dirty=false;step=0;added=null;
   if(!S.round)return;
   const b=await getDoc(doc(db,"ballots","r"+S.round+"_"+me.uid));
   if(!b.exists())return;
   saved=true;const d=b.data();
   if(S.mode==="placements"){ORDER.forEach(k=>{sel[k]=(d[k]||[]).filter(n=>opts().includes(n))});if(complete())step=steps().length}
+  else if(S.mode==='lipsync'){lw=(d.choices||[]).filter(n=>opts().includes(n));lcount=lw.length||1}
   else choice=opts().includes(d.choice)?d.choice:null;
 }
 
@@ -81,6 +82,7 @@ function render(){
   const P=$("poll");P.hidden=false;P.innerHTML="";
   if(S.mode==="placements"&&!steps().length){P.hidden=true;return msg("This poll was opened before the update and has no placement counts. The admin needs to open a new poll.")}
   if(S.mode==="placements")return stepper(P);
+  if(S.mode==="lipsync")return lipsync(P);
   P.append(el("p","kicker","Episode "+S.ep+" \u00b7 "+MODE[S.mode]),el("h1","",S.title),el("p","sub",HELP[S.mode]));
   const g=el("div","opts");
   opts().forEach(n=>{
@@ -89,6 +91,25 @@ function render(){
     g.append(b);
   });
   P.append(g);footer(P);
+}
+
+function lipsync(P){
+  const O=opts(),can2=O.length>=3;if(!can2)lcount=1;
+  P.append(el("p","kicker","Episode "+S.ep+" \u00b7 Lip sync"),el("h1","",S.title),
+    el("p","sub",can2?"Pick one winner, or two. You can\u2019t vote for yourself.":"Who wins the lip sync? Pick one."));
+  if(can2){
+    const seg=el("div","seg");seg.style.marginBottom="16px";
+    [1,2].forEach(n=>{const b=el("button","",n===1?"1 winner":"2 winners");b.type="button";b.setAttribute("aria-pressed",String(lcount===n));
+      b.onclick=()=>{lcount=n;lw=lw.slice(0,n);dirty=true;render()};seg.append(b)});
+    P.append(seg);
+  }
+  const g=el("div","opts");
+  O.forEach(n=>{
+    const b=el("button","opt",n);b.type="button";b.setAttribute("aria-pressed",String(lw.includes(n)));
+    b.onclick=()=>{lw=lw.includes(n)?lw.filter(x=>x!==n):[...lw.slice(Math.max(0,lw.length-lcount+1)),n];dirty=true;render()};
+    g.append(b);
+  });
+  P.append(g,el("p","hint",lw.length+" of "+lcount+" chosen."));footer(P);
 }
 
 function title(k){const q=Q()[k];
@@ -162,7 +183,7 @@ function status(){
 async function submit(){
   $("save").disabled=true;
   const data={round:S.round,ep:S.ep,mode:S.mode,uid:me.uid,at:serverTimestamp()};
-  if(S.mode==="placements")ORDER.forEach(k=>data[k]=sel[k]);else data.choice=choice;
+  if(S.mode==="placements")ORDER.forEach(k=>data[k]=sel[k]);else if(S.mode==='lipsync')data.choices=lw;else data.choice=choice;
   try{await setDoc(doc(db,"ballots","r"+S.round+"_"+me.uid),data);saved=true;dirty=false;status()}
   catch{$("st").className="err";$("st").textContent="Couldn\u2019t save. Voting may have just closed.";$("save").disabled=false}
 }
