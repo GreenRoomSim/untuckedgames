@@ -21,9 +21,11 @@ You can reuse the Firebase project from the last site, or make a new one. Either
 4. When you're done, switch to **Locked** to see results, then **Copy for Discord**.
 
 ## Formats
-- **Placements:** voters pick the winner (or two for a double win), the highs, the low and the bottom 2 in a step-by-step flow. Everyone else is Safe automatically. You set the counts per poll. Points: Win 5, High 4, Safe 3, Low 2, Bottom 1. Nobody places themselves.
-- **Lip sync:** check two or three people. Voters pick one winner, or two when there are three. The lip syncers can't vote.
-- **Winner vote:** voters pick one person from the ones you checked. Not themselves.
+- **Placements:** voters pick the winner (or two for a double win), the highs, the low and the bottom 2 in a step-by-step flow. Everyone else is Safe automatically. You set the counts per poll. Points: Win 5, High 4, Safe 3, Low 2, Bottom 1.
+- **Lip sync:** check two or three people. Voters pick one winner, or two when there are three. 
+- **Winner vote:** voters pick one person from the ones you checked. Anyone can vote for anyone, themselves included.
+
+- **Group vote:** split competitors into two groups (at least 3 each, or use Random split). Voters pick the better group (4 points each, 2 for the other), then winners from that group (+1 each) and bottoms from the other (-1 each). You set how many winners and bottoms they pick.
 
 ## Notes
 - Old accounts from the last site still work. They just show as "In game" and "Can vote".
@@ -33,5 +35,5 @@ You can reuse the Firebase project from the last site, or make a new one. Either
 ## Competitors vs voter accounts
 - **Competitors** (admin > Competitors) are the people in the game, with an optional photo. Photos are shrunk and stored in the database, so no paid Firebase plan is needed.
 - **Voter accounts** are logins only. Anyone can have one, whether or not they compete.
-- **Same person as** (optional, off by default) links a voter to a competitor so they can't place or vote for themselves. Leave it as None for voters who aren't competing.
+- Voters can place or vote for anyone on a poll, including a competitor they own. Nothing links accounts to competitors.
 - After updating, add your competitors, then open a **new poll**. Polls opened before this update use the old name format and won't match.

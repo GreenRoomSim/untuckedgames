@@ -17,6 +17,14 @@ service cloud.firestore {
       return (c.size() == 1 || (c.size() == 2 && o.size() >= 3))
         && c.toSet().hasOnly(o) && c.toSet().size() == c.size();
     }
+    function validGroups() {
+      let d = request.resource.data; let g = st().groups; let q = st().quotas;
+      return d.group in ['a', 'b'] && d.win.size() == q.win && d.bottom.size() == q.bottom
+        && d.win.toSet().size() == d.win.size() && d.bottom.toSet().size() == d.bottom.size()
+        && (d.group == 'a'
+          ? (d.win.toSet().hasOnly(g.a) && d.bottom.toSet().hasOnly(g.b))
+          : (d.win.toSet().hasOnly(g.b) && d.bottom.toSet().hasOnly(g.a)));
+    }
     function validChoice() {
       let c = request.resource.data.choice;
       return c in st().options;
@@ -36,7 +44,7 @@ service cloud.firestore {
         && me().get('canVote', true) == true
         && request.resource.data.round == st().round
         && request.resource.data.mode == st().mode
-        && (st().mode == 'placements' ? validPlacements() : st().mode == 'lipsync' ? validLipsync() : validChoice());
+        && (st().mode == 'placements' ? validPlacements() : st().mode == 'lipsync' ? validLipsync() : st().mode == 'groups' ? validGroups() : validChoice());
     }
   }
 }

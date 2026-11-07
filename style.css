@@ -71,3 +71,8 @@ td{padding:9px 8px;border-bottom:1px solid var(--line)}td.num{font-variant-numer
 .pick .av{margin-bottom:6px}.pick.sm{display:inline-block}
 .crow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
 select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px 8px;max-width:150px}
+
+.gm{display:flex;align-items:center;font-weight:500;font-size:.95rem;margin-top:6px}
+.opt strong{font-size:1.2rem}
+.grow{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.grpv{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}.grpv .row{margin-bottom:6px}
