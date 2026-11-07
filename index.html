@@ -24,13 +24,13 @@
 import {firebaseConfig,emailFor,passFor} from "./firebase-config.js";
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,getDoc,setDoc,onSnapshot,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,getDoc,setDoc,onSnapshot,collection,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 const auth=getAuth(initializeApp(firebaseConfig)),db=getFirestore(),$=id=>document.getElementById(id);
 const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote"};
 const HELP={winner:"Who should win? You can\u2019t vote for yourself."};
 const ORDER=["win","high","low","bottom"],LABEL={win:"Win",high:"High",safe:"Safe",low:"Low",bottom:"Bottom"};
 const calm=matchMedia("(prefers-reduced-motion: reduce)").matches;
-let S=null,me=null,sel={win:[],high:[],low:[],bottom:[]},choice=null,lw=[],lcount=1,step=0,added=null,saved=false,dirty=false,loadedRound=null,unsub=null,vUnsub=null;
+let S=null,C={},cUnsub=null,me=null,sel={win:[],high:[],low:[],bottom:[]},choice=null,lw=[],lcount=1,step=0,added=null,saved=false,dirty=false,loadedRound=null,unsub=null,vUnsub=null;
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
 
 $("go").onclick=async()=>{$("lerr").textContent="";
@@ -40,13 +40,14 @@ $("c").onkeydown=e=>{if(e.key==="Enter")$("go").click()};
 $("out").onclick=()=>signOut(auth);
 
 onAuthStateChanged(auth,async user=>{
-  if(unsub){unsub();unsub=null}if(vUnsub){vUnsub();vUnsub=null}
+  if(unsub){unsub();unsub=null}if(vUnsub){vUnsub();vUnsub=null}if(cUnsub){cUnsub();cUnsub=null}
   $("login").hidden=!!user;$("app").hidden=!user;$("out").hidden=!user;$("hi").textContent="";
   if(!user)return;
   const v=await getDoc(doc(db,"voters",user.uid));
   if(!v.exists()){$("lerr").textContent="This account isn\u2019t set up to vote.";signOut(auth);return}
   me={...v.data(),uid:user.uid};$("hi").textContent=me.name;loadedRound=null;
   vUnsub=onSnapshot(doc(db,"voters",user.uid),s=>{if(s.exists()){me={...s.data(),uid:user.uid};if(S)render()}});
+  cUnsub=onSnapshot(collection(db,"contestants"),s=>{C={};s.docs.forEach(d=>C[d.id]=d.data());if(S)render()});
   unsub=onSnapshot(doc(db,"state","current"),async s=>{
     S=s.data();
     if(S&&loadedRound!==S.round){loadedRound=S.round;await loadBallot()}
@@ -54,7 +55,10 @@ onAuthStateChanged(auth,async user=>{
   });
 });
 
-const opts=()=>S.options.filter(n=>n!==me.name);
+const cname=id=>(C[id]||{}).name||"?";
+function av(id,sz){const c=C[id]||{};if(c.photo){const m=el("img","av "+sz);m.src=c.photo;m.alt="";return m}return el("span","av "+sz,(c.name||"?")[0])}
+function optBtn(id){const b=el("button","opt");b.append(av(id,"lg"),el("span","",cname(id)));return b}
+const opts=()=>S.options.filter(n=>n!==me.competesAs);
 const Q=()=>S.quotas||{};
 const steps=()=>ORDER.filter(k=>Q()[k]>0);
 const placed=()=>ORDER.flatMap(k=>sel[k]);
@@ -78,7 +82,7 @@ function render(){
   if(!S||!S.round)return msg("Nothing is open yet. Check back soon.");
   if(me.canVote===false)return msg("You\u2019re not voting this round.");
   if(!S.open)return msg("Voting is closed. Results are posted in the server.");
-  if(S.mode==="lipsync"&&S.options.includes(me.name))return msg("You\u2019re in the lip sync, so you sit this vote out.");
+  if(S.mode==="lipsync"&&S.options.includes(me.competesAs))return msg("You\u2019re in the lip sync, so you sit this vote out.");
   const P=$("poll");P.hidden=false;P.innerHTML="";
   if(S.mode==="placements"&&!steps().length){P.hidden=true;return msg("This poll was opened before the update and has no placement counts. The admin needs to open a new poll.")}
   if(S.mode==="placements")return stepper(P);
@@ -86,7 +90,7 @@ function render(){
   P.append(el("p","kicker","Episode "+S.ep+" \u00b7 "+MODE[S.mode]),el("h1","",S.title),el("p","sub",HELP[S.mode]));
   const g=el("div","opts");
   opts().forEach(n=>{
-    const b=el("button","opt",n);b.type="button";b.setAttribute("aria-pressed",String(choice===n));
+    const b=optBtn(n);b.type="button";b.setAttribute("aria-pressed",String(choice===n));
     b.onclick=()=>{choice=n;dirty=true;g.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));$("save").disabled=false;status()};
     g.append(b);
   });
@@ -105,7 +109,7 @@ function lipsync(P){
   }
   const g=el("div","opts");
   O.forEach(n=>{
-    const b=el("button","opt",n);b.type="button";b.setAttribute("aria-pressed",String(lw.includes(n)));
+    const b=optBtn(n);b.type="button";b.setAttribute("aria-pressed",String(lw.includes(n)));
     b.onclick=()=>{lw=lw.includes(n)?lw.filter(x=>x!==n):[...lw.slice(Math.max(0,lw.length-lcount+1)),n];dirty=true;render()};
     g.append(b);
   });
@@ -133,7 +137,7 @@ function stepper(P){
   sel[k].forEach(n=>{
     const b=el("button","pick "+cls+(n===added?" new":""));b.type="button";
     if(cls==="dwin")b.append(el("small","","Double win"));else if(k==="win")b.append(el("small","","Winner"));
-    b.append(document.createTextNode(n));b.setAttribute("aria-label","Remove "+n);
+    b.append(av(n,"lg"),el("span","",cname(n)));b.setAttribute("aria-label","Remove "+cname(n));
     b.onclick=()=>{sel[k]=sel[k].filter(x=>x!==n);dirty=true;added=null;render()};
     stage.append(b);
     if(n===added&&k==="win"&&!calm)burst(b,cls==="dwin"?"#00008b":"#4169e1");
@@ -142,7 +146,7 @@ function stepper(P){
   P.append(stage);added=null;
   const full=sel[k].length===q,pl=el("div","pool");
   pool().forEach(n=>{
-    const b=el("button","cand",n);b.type="button";b.disabled=full;
+    const b=el("button","cand");b.append(av(n,"md"),el("span","",cname(n)));b.type="button";b.disabled=full;
     b.onclick=()=>{sel[k].push(n);dirty=true;added=n;render()};
     pl.append(b);
   });
@@ -161,7 +165,7 @@ function review(P){
     h.append(el("strong","",LABEL[k]+(k==="win"&&Q().win>1?" (double)":"")));
     if(k!=="safe"){const e=el("button","btn small","Edit");e.type="button";e.onclick=()=>{step=steps().indexOf(k);render()};h.append(e)}
     const chips=el("div","chips");
-    names.forEach((n,j)=>{const c=el("span","pick sm "+(k==="win"&&Q().win>1?"dwin":k),n);if(!calm)c.style.animation="pop .4s cubic-bezier(.2,1.5,.4,1) both";c.style.animationDelay=(j*60)+"ms";chips.append(c)});
+    names.forEach((n,j)=>{const c=el("span","pick sm "+(k==="win"&&Q().win>1?"dwin":k),cname(n));if(!calm)c.style.animation="pop .4s cubic-bezier(.2,1.5,.4,1) both";c.style.animationDelay=(j*60)+"ms";chips.append(c)});
     if(!names.length)chips.append(el("span","hint","Nobody"));
     g.append(h,chips);P.append(g);
   });
