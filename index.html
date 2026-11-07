@@ -27,7 +27,7 @@ import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "htt
 import {getFirestore,doc,getDoc,setDoc,onSnapshot,collection,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 const auth=getAuth(initializeApp(firebaseConfig)),db=getFirestore(),$=id=>document.getElementById(id);
 const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote"};
-const HELP={winner:"Who should win? You can\u2019t vote for yourself."};
+const HELP={winner:"Who should win? Pick one."};
 const ORDER=["win","high","low","bottom"],LABEL={win:"Win",high:"High",safe:"Safe",low:"Low",bottom:"Bottom"};
 const calm=matchMedia("(prefers-reduced-motion: reduce)").matches;
 let S=null,C={},cUnsub=null,me=null,sel={win:[],high:[],low:[],bottom:[]},choice=null,lw=[],lcount=1,step=0,added=null,saved=false,dirty=false,loadedRound=null,unsub=null,vUnsub=null;
@@ -58,7 +58,7 @@ onAuthStateChanged(auth,async user=>{
 const cname=id=>(C[id]||{}).name||"?";
 function av(id,sz){const c=C[id]||{};if(c.photo){const m=el("img","av "+sz);m.src=c.photo;m.alt="";return m}return el("span","av "+sz,(c.name||"?")[0])}
 function optBtn(id){const b=el("button","opt");b.append(av(id,"lg"),el("span","",cname(id)));return b}
-const opts=()=>S.options.filter(n=>n!==me.competesAs);
+const opts=()=>S.options;
 const Q=()=>S.quotas||{};
 const steps=()=>ORDER.filter(k=>Q()[k]>0);
 const placed=()=>ORDER.flatMap(k=>sel[k]);
@@ -82,7 +82,6 @@ function render(){
   if(!S||!S.round)return msg("Nothing is open yet. Check back soon.");
   if(me.canVote===false)return msg("You\u2019re not voting this round.");
   if(!S.open)return msg("Voting is closed. Results are posted in the server.");
-  if(S.mode==="lipsync"&&S.options.includes(me.competesAs))return msg("You\u2019re in the lip sync, so you sit this vote out.");
   const P=$("poll");P.hidden=false;P.innerHTML="";
   if(S.mode==="placements"&&!steps().length){P.hidden=true;return msg("This poll was opened before the update and has no placement counts. The admin needs to open a new poll.")}
   if(S.mode==="placements")return stepper(P);
@@ -100,7 +99,7 @@ function render(){
 function lipsync(P){
   const O=opts(),can2=O.length>=3;if(!can2)lcount=1;
   P.append(el("p","kicker","Episode "+S.ep+" \u00b7 Lip sync"),el("h1","",S.title),
-    el("p","sub",can2?"Pick one winner, or two. You can\u2019t vote for yourself.":"Who wins the lip sync? Pick one."));
+    el("p","sub",can2?"Pick one winner, or two.":"Who wins the lip sync? Pick one."));
   if(can2){
     const seg=el("div","seg");seg.style.marginBottom="16px";
     [1,2].forEach(n=>{const b=el("button","",n===1?"1 winner":"2 winners");b.type="button";b.setAttribute("aria-pressed",String(lcount===n));

@@ -70,7 +70,7 @@ function renderAll(){
 function renderPoll(){
   const P=$("poll");
   if(!S.round){P.innerHTML='<h2>No poll yet</h2><p class="hint" style="margin:0">Set one up below.</p>';return}
-  const eligible=voters.filter(v=>v.canVote!==false&&!(S.mode==="lipsync"&&S.options.includes(v.competesAs))).length;
+  const eligible=voters.filter(v=>v.canVote!==false).length;
   P.innerHTML='<div class="kicker">Episode '+S.ep+' \u00b7 '+MODE[S.mode]+'</div><h2 style="text-transform:none;letter-spacing:0;font-size:1.3rem">'+esc(S.title)+'</h2>'+
    '<div class="row"><div class="seg" role="group" aria-label="Voting"><button id="bo" aria-pressed="'+S.open+'">Open</button><button id="bl" aria-pressed="'+!S.open+'">Locked</button></div>'+
    '<span class="hint">'+ballots.length+' of '+eligible+' ballots in</span></div>'+
@@ -83,7 +83,7 @@ function renderNew(){
   if(!form.opts||!form.ot)form.opts=new Set(game.map(c=>c.id));
   form.opts.forEach(n=>{if(!game.some(c=>c.id===n))form.opts.delete(n)});
   if(!form.qt)form.q=sugg(form.opts.size);
-  const hint={placements:"Everyone checked gets placed by every voter. A voter linked to a competitor can\u2019t place that competitor.",lipsync:"Check two or three. Voters linked to a lip syncer can\u2019t vote this round. With three, voters choose one or two winners.",winner:"Voters pick one of the people checked (not their linked competitor)."}[form.mode];
+  const hint={placements:"Everyone checked gets placed by every voter.",lipsync:"Check two or three. With three, voters choose one or two winners.",winner:"Voters pick one of the people checked."}[form.mode];
   const pl=form.mode==="placements";
   const qf=(k,l)=>'<div style="width:96px"><label for="q-'+k+'">'+l+'</label><input id="q-'+k+'" data-q="'+k+'" type="number" min="0" max="'+(k==="win"?2:9)+'" value="'+form.q[k]+'"></div>';
   $("new").innerHTML='<h2>New poll</h2>'+
@@ -107,7 +107,7 @@ function renderNew(){
     else if(form.mode==="lipsync"&&(o.length<2||o.length>3))formErr="Check two or three people for a lip sync.";
     else if(o.length<2)formErr="Check at least two people.";
     else if(pl&&(q.win<1||q.win>2))formErr="Winners must be 1 or 2.";
-    else if(pl&&s>o.length-1)formErr="Too many placements. Voters who are on the poll can\u2019t place themselves, so the total can\u2019t pass "+(o.length-1)+".";
+    else if(pl&&s>o.length)formErr="Too many placements. The total can\u2019t pass "+o.length+".";
     if(formErr)return renderNew();
     await updateDoc(stRef,{ep:form.ep,round:(S.round||0)+1,mode:form.mode,title:form.title.trim(),options:o,open:true,quotas:pl?{...q}:{win:0,high:0,low:0,bottom:0}});
     form.title="";form.qt=false;renderNew();
@@ -116,20 +116,18 @@ function renderNew(){
 
 function renderPeople(){
   const done=new Set(ballots.map(b=>b.uid));
-  const copt=cur=>'<option value="">None</option>'+cont.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(c=>'<option value="'+c.id+'"'+(cur===c.id?" selected":"")+'>'+esc(c.name)+'</option>').join("");
   const rows=voters.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(v=>{
     const can=v.canVote!==false;
     return '<tr><td>'+esc(v.name)+'</td><td>'+esc(v.username)+'</td><td>'+esc(v.code)+'</td>'+
      '<td class="'+(done.has(v.id)?"ok":"gone")+'">'+(done.has(v.id)?"Voted":can?"Waiting":"\u2014")+'</td>'+
      '<td><button class="btn small'+(can?" primary":"")+'" data-c="'+v.id+'" data-on="'+can+'">'+(can?"Can vote":"Can\u2019t vote")+'</button></td>'+
-     '<td><select data-l="'+v.id+'" aria-label="Same person as">'+copt(v.competesAs||"")+'</select></td></tr>';
+     '</tr>';
   }).join("");
-  $("people").innerHTML='<h2>Voter accounts</h2><div class="scroll"><table><thead><tr><th>Name</th><th>Username</th><th>Code</th><th>This poll</th><th>Voting</th><th>Same person as</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
-   '<p class="hint" style="margin:0 0 18px">Voter accounts are separate from competitors. <b>Same person as</b> is optional and off by default. Only set it if a voter is also competing and shouldn\u2019t place themselves.</p>'+
+  $("people").innerHTML='<h2>Voter accounts</h2><div class="scroll"><table><thead><tr><th>Name</th><th>Username</th><th>Code</th><th>This poll</th><th>Voting</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+   '<p class="hint" style="margin:0 0 18px">Voter accounts are separate from competitors. Anyone can have one, and anyone can vote for anyone, themselves included.</p>'+
    '<label for="nn">Add a voter account</label><div class="row" style="align-items:flex-start;flex-wrap:nowrap"><input id="nn" placeholder="Name" maxlength="24"><input id="nu" placeholder="Username" maxlength="20" autocapitalize="none"><input id="nc" placeholder="4-digit code" inputmode="numeric" maxlength="4"><button class="btn" id="add" style="white-space:nowrap">Add</button></div>'+
    '<p class="err" role="alert">'+castErr+'</p>';
   $("people").querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>updateDoc(doc(db,"voters",b.dataset.c),{canVote:b.dataset.on!=="true"}));
-  $("people").querySelectorAll("[data-l]").forEach(s=>s.onchange=()=>updateDoc(doc(db,"voters",s.dataset.l),{competesAs:s.value}));
   $("add").onclick=addPerson;
 }
 async function addPerson(){
@@ -137,7 +135,7 @@ async function addPerson(){
   if(!name||!u||!/^\d{4}$/.test(c)){castErr="Enter a name, a username and a 4-digit code.";return renderPeople()}
   try{
     const cr=await createUserWithEmailAndPassword(auth2,emailFor(u),passFor(c));await signOut(auth2);
-    await setDoc(doc(db,"voters",cr.user.uid),{name,username:emailFor(u).split("@")[0],code:c,canVote:true,competesAs:""});
+    await setDoc(doc(db,"voters",cr.user.uid),{name,username:emailFor(u).split("@")[0],code:c,canVote:true});
   }catch(e){castErr=e.code==="auth/email-already-in-use"?"That username is taken.":"Couldn\u2019t create the account."}
   renderPeople();
 }
@@ -170,10 +168,9 @@ function renderCont(){
 function tally(){
   const bs=ballots.filter(b=>b.mode===S.mode);
   if(S.mode==="placements"){
-    const self=id=>(voters.find(v=>v.id===id)||{}).competesAs;
     return S.options.map(n=>{
       const t={win:0,high:0,safe:0,low:0,bottom:0};let c=0;
-      bs.forEach(b=>{if(self(b.uid)===n)return;c++;
+      bs.forEach(b=>{c++;
         const has=k=>(b[k]||[]).includes(n);
         t[has("win")?"win":has("high")?"high":has("low")?"low":has("bottom")?"bottom":"safe"]++});
       const pts=TIERS.reduce((a,[k,,p])=>a+t[k]*p,0);
