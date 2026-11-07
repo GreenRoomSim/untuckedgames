@@ -172,7 +172,7 @@ function groupStep(P){
     b.onclick=()=>{if(best!==k){best=k;sel.win=[];sel.bottom=[];dirty=true}render()};
     g.append(b);
   });
-  P.append(g,el("p","hint","The better group earns 4 points each, the other group 2."));
+  P.append(g);
   const nav=el("div","nav"),next=el("button","btn primary","Next");next.type="button";next.disabled=!best;
   next.onclick=()=>{step++;render()};nav.append(next);P.append(nav);
 }
