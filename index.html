@@ -104,7 +104,8 @@ function render(){
 
 function lipsync(P){
   const O=opts(),can2=O.length>=3;if(!can2)lcount=1;
-  P.append(el("p","kicker","Episode "+S.ep+" \u00b7 Lip sync"),el("h1","",S.title),
+  const bn=el("div","banner","Please do not base your vote on Track Record. Base it on your true opinion.");bn.setAttribute("role","note");
+  P.append(bn,el("p","kicker","Episode "+S.ep+" \u00b7 Lip sync"),el("h1","",S.title),
     el("p","sub",can2?"Pick one winner, or two.":"Who wins the lip sync? Pick one."));
   if(can2){
     const seg=el("div","seg");seg.style.marginBottom="16px";
