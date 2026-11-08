@@ -27,6 +27,8 @@ You can reuse the Firebase project from the last site, or make a new one. Either
 
 - **Group vote:** split competitors into two groups (at least 3 each, or use Random split). Voters pick the better group (4 points each, 2 for the other), then winners from that group (+1 each) and bottoms from the other (-1 each). You set how many winners and bottoms they pick.
 
+- **Rate a queen:** voters drag everyone into order from best to worst. Last place on a ballot gets 1 point and first gets as many points as there are people on the poll. Points are added up across all ballots.
+
 ## Notes
 - Old accounts from the last site still work. They just show as "In game" and "Can vote".
 - Self-voting is blocked by the page and by the database rules.

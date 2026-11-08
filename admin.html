@@ -30,7 +30,7 @@ import {getFirestore,doc,setDoc,updateDoc,onSnapshot,collection,query,where,addD
 const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app),$=id=>document.getElementById(id);
 const auth2=getAuth(initializeApp(firebaseConfig,"second")); // makes voter accounts without signing you out
 const stRef=doc(db,"state","current");
-const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote",groups:"Group vote"};
+const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote",groups:"Group vote",rank:"Rate a queen"};
 const TIERS=[["win","Win",5],["high","High",4],["safe","Safe",3],["low","Low",2],["bottom","Bottom",1]];
 let S=null,voters=[],cont=[],ballots=[],subs=[],bUnsub=null,watched=null,formErr="",castErr="",contErr="",formInit=false;
 const form={ep:1,mode:"placements",title:"",opts:null,ot:false,gmap:{},gq:{win:1,bottom:2},q:{win:1,high:2,low:1,bottom:2},qt:false};
@@ -84,7 +84,7 @@ function renderNew(){
   form.opts.forEach(n=>{if(!game.some(c=>c.id===n))form.opts.delete(n)});
   Object.keys(form.gmap).forEach(id=>{if(!game.some(c=>c.id===id))delete form.gmap[id]});
   if(!form.qt)form.q=sugg(form.opts.size);
-  const hint={placements:"Everyone checked gets placed by every voter.",lipsync:"Check two or three. With three, voters choose one or two winners.",winner:"Voters pick one of the people checked.",groups:"Split people into two groups of at least 3. Voters pick the better group (4 points each, 2 for the other group), then winners in that group (+1) and bottoms in the other (\u22121)."}[form.mode];
+  const hint={placements:"Everyone checked gets placed by every voter.",lipsync:"Check two or three. With three, voters choose one or two winners.",winner:"Voters pick one of the people checked.",rank:"Voters rank everyone checked from best to worst.",groups:"Split people into two groups of at least 3. Voters pick the better group (4 points each, 2 for the other group), then winners in that group (+1) and bottoms in the other (\u22121)."}[form.mode];
   const pl=form.mode==="placements",gr=form.mode==="groups";
   const qf=(k,l,g)=>'<div style="width:110px"><label for="q-'+(g?"g":"")+k+'">'+l+'</label><input id="q-'+(g?"g":"")+k+'" data-q="'+k+'" data-g="'+(g?1:"")+'" type="number" min="'+(g?1:0)+'" max="'+(g||k!=="win"?9:2)+'" value="'+(g?form.gq[k]:form.q[k])+'"></div>';
   const board='<label>Groups</label><div>'+game.map(c=>'<div class="grow"><span>'+avh(c.id)+esc(c.name)+'</span><div class="seg" role="group" aria-label="Group for '+esc(c.name)+'">'+[["a","Group 1"],["b","Group 2"],["","Out"]].map(([k,l])=>'<button data-gi="'+c.id+'" data-gv="'+k+'" aria-pressed="'+((form.gmap[c.id]||"")===k)+'">'+l+'</button>').join("")+'</div></div>').join("")+'</div>'+
@@ -189,6 +189,12 @@ function renderCont(){
 
 function tally(){
   const bs=ballots.filter(b=>b.mode===S.mode);
+  if(S.mode==="rank"){
+    const N=S.options.length;
+    return S.options.map(n=>{let pts=0,c=0,firsts=0,pos=0;
+      bs.forEach(b=>{const k=(b.ranking||[]).indexOf(n);if(k<0)return;c++;pts+=N-k;pos+=k+1;if(k===0)firsts++});
+      return {n,c,pts,firsts,avgPos:c?pos/c:0}}).sort((x,y)=>y.pts-x.pts||y.firsts-x.firsts);
+  }
   if(S.mode==="groups"){
     const G=S.groups||{a:[],b:[]};
     const rs=S.options.map(n=>{const g=G.a.includes(n)?"a":"b";let pts=0,w=0,btm=0,c=0;
@@ -208,6 +214,17 @@ function tally(){
   }
   return S.options.map(n=>({n,c:bs.filter(b=>b.choice===n||(b.choices||[]).includes(n)).length})).sort((a,b)=>b.c-a.c);
 }
+function rankRes(R,rows){
+  const tie=i=>(i>0&&rows[i].pts===rows[i-1].pts)||(i<rows.length-1&&rows[i].pts===rows[i+1].pts);
+  R.innerHTML='<h2>Results</h2><div class="scroll"><table><thead><tr><th></th><th>Contestant</th><th title="Times ranked first">#1s</th><th title="Average position">Avg pos</th><th>Pts</th></tr></thead><tbody>'+
+   rows.map((r,i)=>'<tr><td class="num">'+(i+1)+'</td><td>'+avh(r.n)+esc(cn(r.n))+(tie(i)?' <span class="hint">tie</span>':'')+'</td><td class="num">'+r.firsts+'</td><td class="num">'+r.avgPos.toFixed(2)+'</td><td class="num"><b>'+r.pts+'</b></td></tr>').join("")+'</tbody></table></div>'+
+   '<p class="hint" style="margin:0 0 12px">Last place on a ballot earns 1 point and first earns '+S.options.length+'. Points are added up across all ballots, most points first. Ties are flagged for you to settle. Post the outcome in the server.</p>'+
+   '<button class="btn" id="copy">Copy for Discord</button>';
+  $("copy").onclick=async()=>{
+    const txt="Episode "+S.ep+" \u00b7 Rate a queen\n"+rows.map((r,i)=>(i+1)+". "+cn(r.n)+": "+r.pts+" pts").join("\n");
+    await navigator.clipboard.writeText(txt);$("copy").textContent="Copied";
+  };
+}
 function groupRes(R,rows){
   const v=rows.gv,tot=Math.max(1,v.a+v.b),lead=v.a===v.b?"":v.a>v.b?"a":"b";
   const tie=i=>(i>0&&rows[i].pts===rows[i-1].pts)||(i<rows.length-1&&rows[i].pts===rows[i+1].pts);
@@ -226,6 +243,7 @@ function renderRes(){
   const R=$("results");if(!ready()||!S.round||S.open){R.hidden=true;return}
   R.hidden=false;const rows=tally(),pl=S.mode==="placements",max=Math.max(1,...rows.map(r=>r.c));
   if(S.mode==="groups")return groupRes(R,rows);
+  if(S.mode==="rank")return rankRes(R,rows);
   const tie=i=>pl&&((i>0&&rows[i].pts===rows[i-1].pts)||(i<rows.length-1&&rows[i].pts===rows[i+1].pts));
   R.innerHTML='<h2>Results</h2><div class="scroll"><table><thead><tr><th>Contestant</th>'+
    (pl?TIERS.map(([k,l])=>'<th title="'+l+'">'+l[0]+'</th>').join("")+'<th>Pts</th><th title="Points per ballot">Avg</th>':'<th>Votes</th><th></th>')+'</tr></thead><tbody>'+
