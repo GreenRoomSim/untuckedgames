@@ -93,3 +93,6 @@ select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(-
 @media(prefers-reduced-motion:reduce){.rk li{transition:none}}
 
 .banner{background:var(--accent);color:var(--accent-ink);font-weight:700;border-radius:6px;padding:10px 14px;margin:0 0 18px;font-size:.95rem;text-align:center}
+
+.opt[aria-pressed=true]{animation:pop .4s cubic-bezier(.2,1.5,.4,1)}
+@media(prefers-reduced-motion:reduce){.opt[aria-pressed=true]{animation:none}}

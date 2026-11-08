@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function admin() { return request.auth != null && request.auth.uid == 'PASTE_ADMIN_UID'; }
+    function admin() { return request.auth != null && request.auth.uid == 'h6PSsO37hIUiMPnRxiaDmFrIlnf1'; }
     function st() { return get(/databases/$(database)/documents/state/current).data; }
     function me() { return get(/databases/$(database)/documents/voters/$(request.auth.uid)).data; }
 
@@ -29,6 +29,10 @@ service cloud.firestore {
       let rk = request.resource.data.ranking; let o = st().options;
       return rk.size() == o.size() && rk.toSet().hasOnly(o) && rk.toSet().size() == rk.size();
     }
+    function validWildcard() {
+      let d = request.resource.data; let g = st().groups;
+      return d.a in g.a && d.b in g.b;
+    }
     function validChoice() {
       let c = request.resource.data.choice;
       return c in st().options;
@@ -48,7 +52,7 @@ service cloud.firestore {
         && me().get('canVote', true) == true
         && request.resource.data.round == st().round
         && request.resource.data.mode == st().mode
-        && (st().mode == 'placements' ? validPlacements() : st().mode == 'lipsync' ? validLipsync() : st().mode == 'groups' ? validGroups() : st().mode == 'rank' ? validRank() : validChoice());
+        && (st().mode == 'placements' ? validPlacements() : st().mode == 'lipsync' ? validLipsync() : st().mode == 'groups' ? validGroups() : st().mode == 'wildcard' ? validWildcard() : st().mode == 'rank' ? validRank() : validChoice());
     }
   }
 }

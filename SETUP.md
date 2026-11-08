@@ -29,6 +29,8 @@ You can reuse the Firebase project from the last site, or make a new one. Either
 
 - **Rate a queen:** voters drag everyone into order from best to worst. Last place on a ballot gets 1 point and first gets as many points as there are people on the poll. Points are added up across all ballots.
 
+- **Wildcard:** split competitors into two brackets (at least 2 each, or use Random split). Voters pick one person from each bracket. Each pick is a point, and the top scorer in each bracket wins it.
+
 ## Notes
 - Old accounts from the last site still work. They just show as "In game" and "Can vote".
 - Self-voting is blocked by the page and by the database rules.
