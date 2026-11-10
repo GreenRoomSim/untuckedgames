@@ -33,7 +33,8 @@ const stRef=doc(db,"state","current");
 const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote",groups:"Group vote",rank:"Rate a queen",wildcard:"Wildcard"};
 const TIERS=[["win","Win",5],["high","High",4],["safe","Safe",3],["low","Low",2],["bottom","Bottom",1]];
 let S=null,voters=[],cont=[],ballots=[],subs=[],bUnsub=null,watched=null,formErr="",castErr="",contErr="",formInit=false;
-const form={ep:1,mode:"placements",title:"",opts:null,ot:false,gmap:{},gq:{win:1,bottom:2},q:{win:1,high:2,low:1,bottom:2},qt:false};
+const DEFNOTE="Please do not base your vote on Track Record. Base it on your true opinion.";
+const form={note:"",nt:false,ep:1,mode:"placements",title:"",opts:null,ot:false,gmap:{},gq:{win:1,bottom:2},q:{win:1,high:2,low:1,bottom:2},qt:false};
 const sugg=N=>({win:1,high:N>=6?2:N>=4?1:0,low:N>=4?1:0,bottom:N>=4?2:N>=2?1:0});
 const esc=s=>{const d=document.createElement("div");d.textContent=s;return d.innerHTML};
 const ready=()=>S&&S.round!==undefined;
@@ -84,6 +85,7 @@ function renderNew(){
   form.opts.forEach(n=>{if(!game.some(c=>c.id===n))form.opts.delete(n)});
   Object.keys(form.gmap).forEach(id=>{if(!game.some(c=>c.id===id))delete form.gmap[id]});
   if(!form.qt)form.q=sugg(form.opts.size);
+  if(!form.nt)form.note=form.mode==="lipsync"?DEFNOTE:"";
   const hint={placements:"Everyone checked gets placed by every voter.",lipsync:"Check two or three. With three, voters choose one or two winners.",winner:"Voters pick one of the people checked.",rank:"Voters rank everyone checked from best to worst.",wildcard:"Split people into two brackets of at least 2. Voters pick one person from each bracket. Each pick is a point, and the most points in a bracket wins it.",groups:"Split people into two groups of at least 3. Voters pick the better group (4 points each, 2 for the other group), then winners in that group (+1) and bottoms in the other (\u22121)."}[form.mode];
   const pl=form.mode==="placements",gr=form.mode==="groups",wc=form.mode==="wildcard",bd=gr||wc,mn=wc?2:3;
   const qf=(k,l,g)=>'<div style="width:110px"><label for="q-'+(g?"g":"")+k+'">'+l+'</label><input id="q-'+(g?"g":"")+k+'" data-q="'+k+'" data-g="'+(g?1:"")+'" type="number" min="'+(g?1:0)+'" max="'+(g||k!=="win"?9:2)+'" value="'+(g?form.gq[k]:form.q[k])+'"></div>';
@@ -94,6 +96,7 @@ function renderNew(){
    '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end"><div style="width:110px"><label for="fep">Episode</label><input id="fep" type="number" min="1" value="'+form.ep+'"></div>'+
    '<div style="margin-bottom:12px"><label>Format</label><div class="seg">'+Object.keys(MODE).map(k=>'<button data-m="'+k+'" aria-pressed="'+(form.mode===k)+'">'+MODE[k]+'</button>').join("")+'</div></div></div>'+
    '<label for="ft">Challenge / description</label><textarea id="ft" placeholder="What are voters judging? They see this at the top of the ballot.">'+esc(form.title)+'</textarea>'+
+   '<label for="fn">Banner note (optional)</label><textarea id="fn" maxlength="140" style="min-height:60px" placeholder="Shown in a banner at the top of the ballot">'+esc(form.note)+'</textarea><p class="hint" style="margin:-6px 0 12px">Leave it empty for no banner. Lip sync polls start with the track record reminder, which you can edit or clear.</p>'+
    (bd?board:'<label>Who is on this poll</label>'+(game.length?'':'<p class="hint">Add competitors below first.</p>')+'<div class="checks">'+game.map(c=>'<label><input type="checkbox" data-o="'+c.id+'"'+(form.opts.has(c.id)?" checked":"")+'>'+esc(c.name)+'</label>').join("")+'</div>')+
    (pl?'<label>How many of each?</label><div style="display:flex;gap:10px;flex-wrap:wrap">'+qf("win","Winners")+qf("high","Highs")+qf("low","Lows")+qf("bottom","Bottoms")+'</div><p class="hint" id="qi" style="margin:-4px 0 12px"></p>':"")+
    '<p class="hint" style="margin:0 0 12px">'+hint+' Opening a new poll replaces the current one.</p>'+
@@ -104,6 +107,7 @@ function renderNew(){
   info();gcount();
   $("fep").oninput=e=>form.ep=parseInt(e.target.value,10)||1;
   $("ft").oninput=e=>form.title=e.target.value;
+  $("fn").oninput=e=>{form.note=e.target.value;form.nt=true};
   $("new").querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{form.mode=b.dataset.m;formErr="";renderNew()});
   $("new").querySelectorAll("[data-o]").forEach(c=>c.onchange=()=>{form.ot=true;c.checked?form.opts.add(c.dataset.o):form.opts.delete(c.dataset.o);if(!form.qt){form.q=sugg(form.opts.size);["win","high","low","bottom"].forEach(k=>{const i=$("q-"+k);if(i)i.value=form.q[k]})}info()});
   $("new").querySelectorAll("[data-q]").forEach(i=>i.oninput=()=>{const v=Math.max(0,parseInt(i.value,10)||0);if(i.dataset.g)form.gq[i.dataset.q]=v;else{form.q[i.dataset.q]=v;form.qt=true;info()}});
@@ -128,11 +132,11 @@ function renderNew(){
     else if(pl&&(q.win<1||q.win>2))formErr="Winners must be 1 or 2.";
     else if(pl&&s>o.length)formErr="Too many placements. The total can\u2019t pass "+o.length+".";
     if(formErr)return renderNew();
-    await updateDoc(stRef,{ep:form.ep,round:(S.round||0)+1,mode:form.mode,title:form.title.trim(),
+    await updateDoc(stRef,{ep:form.ep,round:(S.round||0)+1,mode:form.mode,title:form.title.trim(),note:form.note.trim(),
       options:bd?[...A,...B]:o,open:true,
       groups:bd?{a:A,b:B}:{a:[],b:[]},
       quotas:pl?{...q}:gr?{win:g.win,high:0,low:0,bottom:g.bottom}:{win:0,high:0,low:0,bottom:0}});
-    form.title="";form.qt=false;renderNew();
+    form.title="";form.qt=false;form.nt=false;renderNew();
   };
 }
 
