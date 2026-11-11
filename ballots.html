@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Untucked Games ballots</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap">
+<link rel="stylesheet" href="style.css">
+</head><body><main class="wide">
+<div class="top"><span class="brand">Untucked <i>Games</i> &middot; Ballots</span>
+  <span><a class="btn small" href="admin.html" style="text-decoration:none">Admin</a> <button class="btn small" id="out" hidden>Sign out</button></span></div>
+<section id="login" hidden>
+  <h1>Admin sign in</h1>
+  <label for="e">Email</label><input id="e" type="email" autocomplete="username">
+  <label for="p">Password</label><input id="p" type="password" autocomplete="current-password">
+  <p id="lerr" class="err" role="alert"></p><button class="btn primary block" id="go">Sign in</button>
+</section>
+<div id="app" hidden>
+  <p id="msg" class="sub"></p>
+  <div id="polls"></div>
+</div>
+</main>
+<script type="module">
+import {firebaseConfig} from "./firebase-config.js";
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,doc,onSnapshot,collection,writeBatch} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+const auth=getAuth(initializeApp(firebaseConfig)),db=getFirestore(),$=id=>document.getElementById(id);
+const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote",groups:"Group vote",rank:"Rate a queen",wildcard:"Wildcard"};
+let B=[],V={},C={},S=null,subs=[];
+const openPolls=new Set(),openBallots=new Set();
+const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+const nm=id=>(C[id]||{}).name||"?";
+
+$("go").onclick=async()=>{$("lerr").textContent="";
+  try{await signInWithEmailAndPassword(auth,$("e").value,$("p").value)}catch{$("lerr").textContent="Sign in failed."}};
+$("p").onkeydown=e=>{if(e.key==="Enter")$("go").click()};
+$("out").onclick=()=>signOut(auth);
+
+onAuthStateChanged(auth,user=>{
+  subs.forEach(u=>u());subs=[];
+  $("login").hidden=!!user;$("app").hidden=!user;$("out").hidden=!user;
+  if(!user)return;
+  const bad=()=>{$("msg").textContent="This account isn\u2019t the admin, or the rules aren\u2019t published yet."};
+  subs.push(onSnapshot(collection(db,"ballots"),s=>{$("msg").textContent="";B=s.docs.map(d=>({...d.data(),_ref:d.ref,_id:d.id}));render()},bad));
+  subs.push(onSnapshot(collection(db,"voters"),s=>{V={};s.docs.forEach(d=>V[d.id]=d.data().name);render()},()=>{}));
+  subs.push(onSnapshot(collection(db,"contestants"),s=>{C={};s.docs.forEach(d=>C[d.id]=d.data());render()},()=>{}));
+  subs.push(onSnapshot(doc(db,"state","current"),s=>{S=s.exists()?s.data():null;render()},()=>{}));
+});
+
+function av(id){const c=C[id]||{};if(c.photo){const i=el("img","av sm");i.src=c.photo;i.alt="";return i}return el("span","av sm",(c.name||"?")[0])}
+function chips(label,ids,cls){
+  const g=el("div","grp"),h=el("div","row");h.append(el("strong","",label));
+  const w=el("div","chips");
+  if(!ids.length)w.append(el("span","hint","Nobody"));
+  ids.forEach(id=>w.append(el("span","pick sm "+cls,nm(id))));
+  g.append(h,w);return g;
+}
+function detail(b){
+  const d=el("div");d.style.padding="4px 0 8px";
+  if(b.mode==="placements"){
+    d.append(chips(b.win&&b.win.length>1?"Win (double)":"Win",b.win||[],b.win&&b.win.length>1?"dwin":"win"),chips("High",b.high||[],"high"),chips("Low",b.low||[],"low"),chips("Bottom",b.bottom||[],"bottom"));
+    d.append(el("p","hint","Everyone else on the poll was Safe."));
+  }else if(b.mode==="groups"){
+    d.append(chips("Best group",[],"safe"));
+    d.lastChild.querySelector(".chips").innerHTML="";d.lastChild.querySelector(".chips").append(el("span","pick sm safe",b.group==="a"?"Group 1":"Group 2"));
+    d.append(chips("Winners",b.win||[],"win"),chips("Bottoms",b.bottom||[],"bottom"));
+  }else if(b.mode==="wildcard"){
+    d.append(chips("Bracket 1 pick",b.a?[b.a]:[],"win"),chips("Bracket 2 pick",b.b?[b.b]:[],"win"));
+  }else if(b.mode==="lipsync"){
+    const ids=b.choices||(b.choice?[b.choice]:[]);d.append(chips(ids.length>1?"Winners":"Winner",ids,"win"));
+  }else if(b.mode==="winner"){
+    d.append(chips("Picked",b.choice?[b.choice]:[],"win"));
+  }else if(b.mode==="rank"){
+    const ol=el("ol");ol.style.cssText="margin:0;padding:0;list-style:none";
+    (b.ranking||[]).forEach((id,i)=>{const li=el("li","crow");li.append(el("span","rank",String(i+1)),av(id),el("span","",nm(id)));li.firstChild.style.cssText="width:1.6em;font-weight:900;color:var(--muted)";ol.append(li)});
+    d.append(el("div","end","Best"),ol,el("div","end","Worst"));
+  }else d.append(el("p","hint","Unknown ballot format."));
+  return d;
+}
+
+async function removePoll(key,list){
+  if(!confirm("Delete all "+list.length+" ballot"+(list.length===1?"":"s")+" in this poll? This removes them from the database and can\u2019t be undone."))return;
+  try{for(let i=0;i<list.length;i+=400){const wb=writeBatch(db);list.slice(i,i+400).forEach(b=>wb.delete(b._ref));await wb.commit()}}
+  catch{$("msg").textContent="Couldn\u2019t delete. Make sure the updated rules are published."}
+}
+
+function render(){
+  const P=$("polls");P.innerHTML="";
+  const groups={};B.forEach(b=>{const k=b.round!==undefined?String(b.round):"old";(groups[k]=groups[k]||[]).push(b)});
+  const keys=Object.keys(groups).sort((a,b)=>a==="old"?1:b==="old"?-1:Number(b)-Number(a));
+  if(!keys.length){P.append(el("p","sub","No ballots yet."));return}
+  keys.forEach(k=>{
+    const list=groups[k].slice().sort((a,b)=>(V[a.uid]||"").localeCompare(V[b.uid]||""));
+    const first=list[0],cur=S&&String(S.round)===k;
+    const det=el("details","poll");det.open=openPolls.has(k);
+    det.addEventListener("toggle",()=>{det.open?openPolls.add(k):openPolls.delete(k)});
+    const sm=el("summary","psum"),left=el("div");
+    left.append(el("strong","",k==="old"?"Earlier ballots":"Poll "+k+" \u00b7 Episode "+first.ep+" \u00b7 "+(MODE[first.mode]||first.mode)));
+    const meta=list.length+" ballot"+(list.length===1?"":"s")+(cur?(S.open?" \u00b7 open now":" \u00b7 locked"):"");
+    left.append(el("div","hint",meta));
+    sm.append(left);det.append(sm);
+    const body=el("div");body.style.padding="0 16px 14px";
+    if(cur&&S.title)body.append(el("p","chal",S.title));
+    list.forEach(b=>{
+      const d=el("details","entry");const key=k+"/"+b._id;d.open=openBallots.has(key);
+      d.addEventListener("toggle",()=>{d.open?openBallots.add(key):openBallots.delete(key)});
+      const s=el("summary","esum");
+      s.append(el("strong","",V[b.uid]||"Unknown voter"));
+      s.append(el("span","hint",b.at&&b.at.toDate?b.at.toDate().toLocaleString([],{dateStyle:"medium",timeStyle:"short"}):""));
+      d.append(s,detail(b));body.append(d);
+    });
+    const del=el("button","btn small","Delete this poll\u2019s ballots");del.type="button";del.style.marginTop="12px";
+    del.onclick=()=>removePoll(k,list);
+    body.append(del);det.append(body);P.append(det);
+  });
+}
+</script></body></html>
