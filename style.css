@@ -96,3 +96,11 @@ select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(-
 
 .opt[aria-pressed=true]{animation:pop .4s cubic-bezier(.2,1.5,.4,1)}
 @media(prefers-reduced-motion:reduce){.opt[aria-pressed=true]{animation:none}}
+
+details.poll{background:var(--panel);border:1px solid var(--line);border-radius:6px;margin-bottom:12px}
+.psum,.esum{display:flex;justify-content:space-between;align-items:center;gap:12px;cursor:pointer;list-style:none}
+.psum{padding:14px 16px;font-size:1.05rem}.psum::-webkit-details-marker,.esum::-webkit-details-marker{display:none}
+.psum::after,.esum::after{content:"+";font-weight:900;color:var(--muted);margin-left:auto;padding-left:12px}
+details[open]>.psum::after,details[open]>.esum::after{content:"\2212"}
+details.entry{border-top:1px solid var(--line)}.esum{padding:12px 0}
+.esum>strong{flex:0 1 auto}.esum .hint{margin:0}
