@@ -104,3 +104,6 @@ details.poll{background:var(--panel);border:1px solid var(--line);border-radius:
 details[open]>.psum::after,details[open]>.esum::after{content:"\2212"}
 details.entry{border-top:1px solid var(--line)}.esum{padding:12px 0}
 .esum>strong{flex:0 1 auto}.esum .hint{margin:0}
+
+.opt small{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;opacity:.8;font-weight:700}
+.opt.home[aria-pressed=true]{background:var(--c-bottom);border-color:var(--c-bottom);color:#000}

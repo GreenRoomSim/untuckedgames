@@ -30,11 +30,11 @@ import {getFirestore,doc,setDoc,updateDoc,onSnapshot,collection,query,where,addD
 const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app),$=id=>document.getElementById(id);
 const auth2=getAuth(initializeApp(firebaseConfig,"second")); // makes voter accounts without signing you out
 const stRef=doc(db,"state","current");
-const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote",groups:"Group vote",rank:"Rate a queen",wildcard:"Wildcard"};
+const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote",groups:"Group vote",rank:"Rate a queen",wildcard:"Wildcard",gohome:"Who should go home",assassin:"Lip sync assassin"};
 const TIERS=[["win","Win",5],["high","High",4],["safe","Safe",3],["low","Low",2],["bottom","Bottom",1]];
 let S=null,voters=[],cont=[],ballots=[],subs=[],bUnsub=null,watched=null,formErr="",castErr="",contErr="",formInit=false;
 const DEFNOTE="Please do not base your vote on Track Record. Base it on your true opinion.";
-const form={note:"",nt:false,ep:1,mode:"placements",title:"",opts:null,ot:false,gmap:{},gq:{win:1,bottom:2},q:{win:1,high:2,low:1,bottom:2},qt:false};
+const form={tas:"",an:"",aphoto:"",note:"",nt:false,ep:1,mode:"placements",title:"",opts:null,ot:false,gmap:{},gq:{win:1,bottom:2},q:{win:1,high:2,low:1,bottom:2},qt:false};
 const sugg=N=>({win:1,high:N>=6?2:N>=4?1:0,low:N>=4?1:0,bottom:N>=4?2:N>=2?1:0});
 const esc=s=>{const d=document.createElement("div");d.textContent=s;return d.innerHTML};
 const ready=()=>S&&S.round!==undefined;
@@ -86,18 +86,22 @@ function renderNew(){
   Object.keys(form.gmap).forEach(id=>{if(!game.some(c=>c.id===id))delete form.gmap[id]});
   if(!form.qt)form.q=sugg(form.opts.size);
   if(!form.nt)form.note=form.mode==="lipsync"?DEFNOTE:"";
-  const hint={placements:"Everyone checked gets placed by every voter.",lipsync:"Check two or three. With three, voters choose one or two winners.",winner:"Voters pick one of the people checked.",rank:"Voters rank everyone checked from best to worst.",wildcard:"Split people into two brackets of at least 2. Voters pick one person from each bracket. Each pick is a point, and the most points in a bracket wins it.",groups:"Split people into two groups of at least 3. Voters pick the better group (4 points each, 2 for the other group), then winners in that group (+1) and bottoms in the other (\u22121)."}[form.mode];
-  const pl=form.mode==="placements",gr=form.mode==="groups",wc=form.mode==="wildcard",bd=gr||wc,mn=wc?2:3;
+  const hint={placements:"Everyone checked gets placed by every voter.",lipsync:"Check two or three. With three, voters choose one or two winners.",winner:"Voters pick one of the people checked.",rank:"Voters rank everyone checked from best to worst.",gohome:"Voters pick one person they think should go home.",assassin:"One ballot, two steps: voters pick who should go home, then whether the Top All Star or the Assassin wins the lip sync.",wildcard:"Split people into two brackets of at least 2. Voters pick one person from each bracket. Each pick is a point, and the most points in a bracket wins it.",groups:"Split people into two groups of at least 3. Voters pick the better group (4 points each, 2 for the other group), then winners in that group (+1) and bottoms in the other (\u22121)."}[form.mode];
+  const pl=form.mode==="placements",gr=form.mode==="groups",wc=form.mode==="wildcard",bd=gr||wc,mn=wc?2:3,as=form.mode==="assassin";
   const qf=(k,l,g)=>'<div style="width:110px"><label for="q-'+(g?"g":"")+k+'">'+l+'</label><input id="q-'+(g?"g":"")+k+'" data-q="'+k+'" data-g="'+(g?1:"")+'" type="number" min="'+(g?1:0)+'" max="'+(g||k!=="win"?9:2)+'" value="'+(g?form.gq[k]:form.q[k])+'"></div>';
   const board='<label>Groups</label><div>'+game.map(c=>'<div class="grow"><span>'+avh(c.id)+esc(c.name)+'</span><div class="seg" role="group" aria-label="Group for '+esc(c.name)+'">'+[["a",wc?"Bracket 1":"Group 1"],["b",wc?"Bracket 2":"Group 2"],["","Out"]].map(([k,l])=>'<button data-gi="'+c.id+'" data-gv="'+k+'" aria-pressed="'+((form.gmap[c.id]||"")===k)+'">'+l+'</button>').join("")+'</div></div>').join("")+'</div>'+
     '<div class="row" style="justify-content:flex-start;margin:10px 0 16px"><button class="btn small" id="rnd">Random split</button><button class="btn small" id="clr">Clear</button><span class="hint" id="gc"></span></div>'+
     (gr?'<label>How many can voters pick?</label><div style="display:flex;gap:10px;flex-wrap:wrap">'+qf("win","Winners",1)+qf("bottom","Bottoms",1)+'</div><p class="hint" style="margin:-4px 0 12px">Winners come from the group a voter chooses as best. Bottoms come from the other group.</p>':'');
+  const attr=s=>esc(s).replace(/"/g,"&quot;");
+  const asnPanel='<label for="ftas">Top All Star</label><select id="ftas" style="width:100%;max-width:none;margin-bottom:12px"><option value="">Choose&hellip;</option>'+game.map(c=>'<option value="'+c.id+'"'+(form.tas===c.id?" selected":"")+'>'+esc(c.name)+'</option>').join("")+'</select>'+
+    '<label for="fan">Lip sync assassin (a new guest)</label><div class="row" style="align-items:flex-start;flex-wrap:nowrap"><input id="fan" placeholder="Assassin name" maxlength="24" value="'+attr(form.an)+'"><input id="faf" type="file" accept="image/*" aria-label="Assassin photo">'+(form.aphoto?'<img class="av" alt="" src="'+form.aphoto+'">':'')+'</div>'+
+    '<p class="hint" style="margin:-4px 0 14px">The assassin is saved as a guest competitor who isn\u2019t in the game. Picking the Top All Star removes them from the go-home list below, and you can tick them again.</p>';
   $("new").innerHTML='<h2>New poll</h2>'+
    '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end"><div style="width:110px"><label for="fep">Episode</label><input id="fep" type="number" min="1" value="'+form.ep+'"></div>'+
    '<div style="margin-bottom:12px"><label>Format</label><div class="seg">'+Object.keys(MODE).map(k=>'<button data-m="'+k+'" aria-pressed="'+(form.mode===k)+'">'+MODE[k]+'</button>').join("")+'</div></div></div>'+
    '<label for="ft">Challenge / description</label><textarea id="ft" placeholder="What are voters judging? They see this at the top of the ballot.">'+esc(form.title)+'</textarea>'+
    '<label for="fn">Banner note (optional)</label><textarea id="fn" maxlength="140" style="min-height:60px" placeholder="Shown in a banner at the top of the ballot">'+esc(form.note)+'</textarea><p class="hint" style="margin:-6px 0 12px">Leave it empty for no banner. Lip sync polls start with the track record reminder, which you can edit or clear.</p>'+
-   (bd?board:'<label>Who is on this poll</label>'+(game.length?'':'<p class="hint">Add competitors below first.</p>')+'<div class="checks">'+game.map(c=>'<label><input type="checkbox" data-o="'+c.id+'"'+(form.opts.has(c.id)?" checked":"")+'>'+esc(c.name)+'</label>').join("")+'</div>')+
+   (as?asnPanel:'')+(bd?board:'<label>'+((as||form.mode==="gohome")?"Who can be voted to go home":"Who is on this poll")+'</label>'+(game.length?'':'<p class="hint">Add competitors below first.</p>')+'<div class="checks">'+game.map(c=>'<label><input type="checkbox" data-o="'+c.id+'"'+(form.opts.has(c.id)?" checked":"")+'>'+esc(c.name)+'</label>').join("")+'</div>')+
    (pl?'<label>How many of each?</label><div style="display:flex;gap:10px;flex-wrap:wrap">'+qf("win","Winners")+qf("high","Highs")+qf("low","Lows")+qf("bottom","Bottoms")+'</div><p class="hint" id="qi" style="margin:-4px 0 12px"></p>':"")+
    '<p class="hint" style="margin:0 0 12px">'+hint+' Opening a new poll replaces the current one.</p>'+
    '<p class="err" role="alert">'+formErr+'</p><button class="btn primary" id="open">Open poll</button>';
@@ -108,6 +112,9 @@ function renderNew(){
   $("fep").oninput=e=>form.ep=parseInt(e.target.value,10)||1;
   $("ft").oninput=e=>form.title=e.target.value;
   $("fn").oninput=e=>{form.note=e.target.value;form.nt=true};
+  if($("ftas"))$("ftas").onchange=e=>{form.tas=e.target.value;form.opts.delete(form.tas);form.ot=true;renderNew()};
+  if($("fan"))$("fan").oninput=e=>form.an=e.target.value;
+  if($("faf"))$("faf").onchange=async e=>{const f=e.target.files[0];if(!f)return;try{form.aphoto=await toThumb(f)}catch{formErr="Couldn\u2019t read that image."}renderNew()};
   $("new").querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{form.mode=b.dataset.m;formErr="";renderNew()});
   $("new").querySelectorAll("[data-o]").forEach(c=>c.onchange=()=>{form.ot=true;c.checked?form.opts.add(c.dataset.o):form.opts.delete(c.dataset.o);if(!form.qt){form.q=sugg(form.opts.size);["win","high","low","bottom"].forEach(k=>{const i=$("q-"+k);if(i)i.value=form.q[k]})}info()});
   $("new").querySelectorAll("[data-q]").forEach(i=>i.oninput=()=>{const v=Math.max(0,parseInt(i.value,10)||0);if(i.dataset.g)form.gq[i.dataset.q]=v;else{form.q[i.dataset.q]=v;form.qt=true;info()}});
@@ -131,12 +138,15 @@ function renderNew(){
     else if(!bd&&o.length<2)formErr="Check at least two people.";
     else if(pl&&(q.win<1||q.win>2))formErr="Winners must be 1 or 2.";
     else if(pl&&s>o.length)formErr="Too many placements. The total can\u2019t pass "+o.length+".";
+    if(!formErr&&as){if(!form.tas)formErr="Choose the Top All Star.";else if(!form.an.trim())formErr="Add the assassin\u2019s name.";else if(o.length<2)formErr="Check at least two people who can go home."}
     if(formErr)return renderNew();
-    await updateDoc(stRef,{ep:form.ep,round:(S.round||0)+1,mode:form.mode,title:form.title.trim(),note:form.note.trim(),
+    let asn=null;
+    if(as){const ref=await addDoc(collection(db,"contestants"),{name:form.an.trim(),photo:form.aphoto||"",active:false,guest:true});asn={tas:form.tas,guest:ref.id}}
+    await updateDoc(stRef,{ep:form.ep,round:(S.round||0)+1,mode:form.mode,title:form.title.trim(),note:form.note.trim(),assassin:asn,
       options:bd?[...A,...B]:o,open:true,
       groups:bd?{a:A,b:B}:{a:[],b:[]},
       quotas:pl?{...q}:gr?{win:g.win,high:0,low:0,bottom:g.bottom}:{win:0,high:0,low:0,bottom:0}});
-    form.title="";form.qt=false;form.nt=false;renderNew();
+    form.title="";form.qt=false;form.nt=false;form.an="";form.aphoto="";form.tas="";renderNew();
   };
 }
 
@@ -173,7 +183,7 @@ function toThumb(file,size=240){return new Promise((res,rej)=>{const img=new Ima
 function renderCont(){
   const rows=cont.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(c=>{const on=c.active!==false;
     return '<div class="crow">'+(c.photo?'<img class="av" alt="" src="'+c.photo+'">':'<span class="av">'+esc(c.name[0]||"?")+'</span>')+
-     '<span style="flex:1;font-weight:700">'+esc(c.name)+(on?"":' <span class="gone">(out)</span>')+'</span>'+
+     '<span style="flex:1;font-weight:700">'+esc(c.name)+(c.guest?' <span class="gone">(guest)</span>':'')+(on?"":' <span class="gone">(out)</span>')+'</span>'+
      '<button class="btn small'+(on?" primary":"")+'" data-t="'+c.id+'" data-on="'+on+'">'+(on?"In game":"Out")+'</button>'+
      '<label class="btn small" style="margin:0;cursor:pointer">Photo<input type="file" accept="image/*" data-p="'+c.id+'" hidden></label>'+
      '<button class="btn small" data-d="'+c.id+'">Remove</button></div>'}).join("");
@@ -193,6 +203,9 @@ function renderCont(){
 
 function tally(){
   const bs=ballots.filter(b=>b.mode===S.mode);
+  if(S.mode==="assassin"){
+    return {hs:S.options.map(n=>({n,c:bs.filter(b=>b.home===n).length})).sort((x,y)=>y.c-x.c),t:bs.filter(b=>b.winner==="tas").length,g:bs.filter(b=>b.winner==="guest").length};
+  }
   if(S.mode==="wildcard"){
     const G=S.groups||{a:[],b:[]};
     return S.options.map(n=>{const g=G.a.includes(n)?"a":"b";return {n,g,c:bs.filter(b=>b[g]===n).length}}).sort((x,y)=>y.c-x.c);
@@ -221,6 +234,18 @@ function tally(){
     }).sort((a,b)=>b.pts-a.pts||b.avg-a.avg);
   }
   return S.options.map(n=>({n,c:bs.filter(b=>b.choice===n||(b.choices||[]).includes(n)).length})).sort((a,b)=>b.c-a.c);
+}
+function asnRes(R){
+  const t=tally(),tot=Math.max(1,t.t+t.g),hmax=Math.max(1,...t.hs.map(r=>r.c)),a=S.assassin||{},lead=t.t===t.g?"":t.t>t.g?"tas":"guest";
+  const side=(k,label,id,c)=>'<div><div class="row"><strong>'+label+'</strong><span>'+c+' vote'+(c===1?"":"s")+(lead===k?" \u00b7 winning":!lead?" \u00b7 tied":"")+'</span></div><div style="margin:6px 0">'+avh(id)+esc(cn(id))+'</div><div class="bar" style="width:'+Math.round(c/tot*100)+'%"></div></div>';
+  R.innerHTML='<h2>Who should go home</h2><div class="scroll"><table><thead><tr><th>Contestant</th><th>Votes</th><th></th></tr></thead><tbody>'+
+   t.hs.map(r=>'<tr><td>'+avh(r.n)+esc(cn(r.n))+'</td><td class="num"><b>'+r.c+'</b></td><td style="width:40%"><div class="bar" style="width:'+Math.round(r.c/hmax*100)+'%"></div></td></tr>').join("")+'</tbody></table></div>'+
+   '<h2 style="margin-top:8px">Lip sync</h2><div class="grpv">'+side("tas","Top All Star",a.tas,t.t)+side("guest","Assassin",a.guest,t.g)+'</div>'+
+   '<p class="hint" style="margin:0 0 12px">Ties are for you to settle. Post the outcome in the server.</p><button class="btn" id="copy">Copy for Discord</button>';
+  $("copy").onclick=async()=>{
+    const txt="Episode "+S.ep+" \u00b7 Lip sync assassin\nShould go home:\n"+t.hs.map((r,i)=>(i+1)+". "+cn(r.n)+": "+r.c).join("\n")+"\n\nLip sync: "+cn(a.tas)+" (Top All Star) "+t.t+" - "+t.g+" "+cn(a.guest)+" (Assassin)";
+    await navigator.clipboard.writeText(txt);$("copy").textContent="Copied";
+  };
 }
 function wcRes(R,rows){
   const out=[];
@@ -260,7 +285,7 @@ function groupRes(R,rows){
 }
 function renderRes(){
   const R=$("results");if(!ready()||!S.round||S.open){R.hidden=true;return}
-  R.hidden=false;const rows=tally(),pl=S.mode==="placements",max=Math.max(1,...rows.map(r=>r.c));
+  R.hidden=false;if(S.mode==="assassin")return asnRes(R);const rows=tally(),pl=S.mode==="placements",max=Math.max(1,...rows.map(r=>r.c));
   if(S.mode==="groups")return groupRes(R,rows);
   if(S.mode==="rank")return rankRes(R,rows);
   if(S.mode==="wildcard")return wcRes(R,rows);

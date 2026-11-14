@@ -24,7 +24,7 @@ import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,doc,onSnapshot,collection,writeBatch} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 const auth=getAuth(initializeApp(firebaseConfig)),db=getFirestore(),$=id=>document.getElementById(id);
-const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote",groups:"Group vote",rank:"Rate a queen",wildcard:"Wildcard"};
+const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote",groups:"Group vote",rank:"Rate a queen",wildcard:"Wildcard",gohome:"Who should go home",assassin:"Lip sync assassin"};
 let B=[],V={},C={},S=null,subs=[];
 const openPolls=new Set(),openBallots=new Set();
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
@@ -67,8 +67,12 @@ function detail(b){
     d.append(chips("Bracket 1 pick",b.a?[b.a]:[],"win"),chips("Bracket 2 pick",b.b?[b.b]:[],"win"));
   }else if(b.mode==="lipsync"){
     const ids=b.choices||(b.choice?[b.choice]:[]);d.append(chips(ids.length>1?"Winners":"Winner",ids,"win"));
-  }else if(b.mode==="winner"){
-    d.append(chips("Picked",b.choice?[b.choice]:[],"win"));
+  }else if(b.mode==="winner"||b.mode==="gohome"){
+    d.append(chips(b.mode==="gohome"?"Should go home":"Picked",b.choice?[b.choice]:[],b.mode==="gohome"?"bottom":"win"));
+  }else if(b.mode==="assassin"){
+    d.append(chips("Should go home",b.home?[b.home]:[],"bottom"));
+    const g=el("div","grp"),h=el("div","row"),w=el("div","chips");h.append(el("strong","","Lip sync winner"));
+    w.append(el("span","pick sm win",b.winner==="tas"?"Top All Star":"Lip Sync Assassin"));g.append(h,w);d.append(g);
   }else if(b.mode==="rank"){
     const ol=el("ol");ol.style.cssText="margin:0;padding:0;list-style:none";
     (b.ranking||[]).forEach((id,i)=>{const li=el("li","crow");li.append(el("span","rank",String(i+1)),av(id),el("span","",nm(id)));li.firstChild.style.cssText="width:1.6em;font-weight:900;color:var(--muted)";ol.append(li)});
