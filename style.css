@@ -107,3 +107,7 @@ details.entry{border-top:1px solid var(--line)}.esum{padding:12px 0}
 
 .opt small{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;opacity:.8;font-weight:700}
 .opt.home[aria-pressed=true]{background:var(--c-bottom);border-color:var(--c-bottom);color:#000}
+
+.fairnote{font-size:.85rem;color:var(--muted);margin:0 0 16px;padding-left:10px;border-left:3px solid var(--line)}
+.flag{font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;background:var(--c-bottom);color:#000;border-radius:3px;padding:2px 7px;vertical-align:middle}
+.why{margin:4px 0 12px;padding:10px 12px;border-left:3px solid var(--c-bottom);background:var(--bg);border-radius:4px;font-size:.92rem}

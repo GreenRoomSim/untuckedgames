@@ -90,6 +90,7 @@ function render(){
   if(!S.open)return msg("Voting is closed. Results are posted in the server.");
   const P=$("poll");P.hidden=false;P.innerHTML="";
   if(S.note){const bn=el("div","banner",S.note);bn.setAttribute("role","note");P.append(bn)}
+  P.append(el("p","fairnote","Please vote fairly. Unusual votes will be flagged, and you may be asked to explain your vote."))
   if(S.mode==="placements"&&!steps().length){P.hidden=true;return msg("This poll was opened before the update and has no placement counts. The admin needs to open a new poll.")}
   if(S.mode==="groups"&&!(S.groups&&S.groups.a&&S.groups.a.length)){P.hidden=true;return msg("This poll isn\u2019t set up. The admin needs to open a new poll.")}
   if(S.mode==="placements"||S.mode==="groups")return stepper(P);
