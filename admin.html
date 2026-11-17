@@ -32,12 +32,14 @@ const auth2=getAuth(initializeApp(firebaseConfig,"second")); // makes voter acco
 const stRef=doc(db,"state","current");
 const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote",groups:"Group vote",rank:"Rate a queen",wildcard:"Wildcard",gohome:"Who should go home",assassin:"Lip sync assassin"};
 const TIERS=[["win","Win",5],["high","High",4],["safe","Safe",3],["low","Low",2],["bottom","Bottom",1]];
-let S=null,voters=[],cont=[],ballots=[],subs=[],bUnsub=null,watched=null,formErr="",castErr="",contErr="",formInit=false;
+let S=null,RV={},voters=[],cont=[],ballots=[],subs=[],bUnsub=null,watched=null,formErr="",castErr="",contErr="",formInit=false;
 const DEFNOTE="Please do not base your vote on Track Record. Base it on your true opinion.";
 const form={tas:"",an:"",aphoto:"",note:"",nt:false,ep:1,mode:"placements",title:"",opts:null,ot:false,gmap:{},gq:{win:1,bottom:2},q:{win:1,high:2,low:1,bottom:2},qt:false};
 const sugg=N=>({win:1,high:N>=6?2:N>=4?1:0,low:N>=4?1:0,bottom:N>=4?2:N>=2?1:0});
 const esc=s=>{const d=document.createElement("div");d.textContent=s;return d.innerHTML};
 const ready=()=>S&&S.round!==undefined;
+const ms=b=>b.at&&b.at.toMillis?b.at.toMillis():0;
+const counted=b=>{const r=RV[b._id];return !(r&&r.ignored&&r.at===ms(b))};
 
 $("go").onclick=async()=>{$("lerr").textContent="";
   try{await signInWithEmailAndPassword(auth,$("e").value,$("p").value)}catch{$("lerr").textContent="Sign in failed."}};
@@ -54,12 +56,13 @@ onAuthStateChanged(auth,user=>{
     if(ready()){
       if(!formInit){form.ep=S.ep;formInit=true}
       if(S.round!==watched){watched=S.round;if(bUnsub)bUnsub();
-        bUnsub=onSnapshot(query(collection(db,"ballots"),where("round","==",S.round)),b=>{ballots=b.docs.map(d=>d.data());renderPoll();renderRes();renderPeople()})}
+        bUnsub=onSnapshot(query(collection(db,"ballots"),where("round","==",S.round)),b=>{ballots=b.docs.map(d=>({...d.data(),_id:d.id}));renderPoll();renderRes();renderPeople()})}
     }
     renderAll();
   },()=>{$("msg").textContent="This account isn\u2019t the admin, or the rules aren\u2019t published yet."}));
   subs.push(onSnapshot(collection(db,"voters"),s=>{voters=s.docs.map(d=>({id:d.id,...d.data()}));if(ready()){renderNew();renderPeople();renderRes()}},()=>{}));
   subs.push(onSnapshot(collection(db,"contestants"),s=>{cont=s.docs.map(d=>({id:d.id,...d.data()}));if(ready()){renderCont();renderNew();renderRes()}},()=>{}));
+  subs.push(onSnapshot(collection(db,"reviews"),s=>{RV={};s.docs.forEach(d=>RV[d.id]=d.data());if(ready()){renderPoll();renderRes()}},()=>{}));
 });
 
 function renderAll(){
@@ -74,7 +77,7 @@ function renderPoll(){
   const eligible=voters.filter(v=>v.canVote!==false).length;
   P.innerHTML='<div class="kicker">Episode '+S.ep+' \u00b7 '+MODE[S.mode]+'</div><h2 style="text-transform:none;letter-spacing:0;font-size:1.3rem">'+esc(S.title)+'</h2>'+
    '<div class="row"><div class="seg" role="group" aria-label="Voting"><button id="bo" aria-pressed="'+S.open+'">Open</button><button id="bl" aria-pressed="'+!S.open+'">Locked</button></div>'+
-   '<span class="hint">'+ballots.length+' of '+eligible+' ballots in</span></div>'+
+   '<span class="hint">'+ballots.length+' of '+eligible+' ballots in'+(ballots.some(b=>!counted(b))?' \u00b7 '+ballots.filter(b=>!counted(b)).length+' ignored':'')+'</span></div>'+
    '<p class="hint">'+(S.open?"Voting is open.":"Voting is locked. Nobody can submit or change a ballot.")+'</p>'+(S.mode==="placements"&&!(S.quotas&&S.quotas.win)?'<p class="err">This poll has no placement counts, so voters can\u2019t vote on it. Open a new poll below.</p>':"");
   $("bo").onclick=()=>updateDoc(stRef,{open:true});$("bl").onclick=()=>updateDoc(stRef,{open:false});
 }
@@ -202,7 +205,7 @@ function renderCont(){
 }
 
 function tally(){
-  const bs=ballots.filter(b=>b.mode===S.mode);
+  const bs=ballots.filter(b=>b.mode===S.mode&&counted(b));
   if(S.mode==="assassin"){
     return {hs:S.options.map(n=>({n,c:bs.filter(b=>b.home===n).length})).sort((x,y)=>y.c-x.c),t:bs.filter(b=>b.winner==="tas").length,g:bs.filter(b=>b.winner==="guest").length};
   }

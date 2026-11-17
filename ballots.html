@@ -22,10 +22,10 @@
 import {firebaseConfig} from "./firebase-config.js";
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,onSnapshot,collection,writeBatch} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,onSnapshot,collection,writeBatch,setDoc,deleteDoc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 const auth=getAuth(initializeApp(firebaseConfig)),db=getFirestore(),$=id=>document.getElementById(id);
 const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote",groups:"Group vote",rank:"Rate a queen",wildcard:"Wildcard",gohome:"Who should go home",assassin:"Lip sync assassin"};
-let B=[],V={},C={},S=null,subs=[];
+let B=[],V={},C={},S=null,RV={},RS=[],subs=[];
 const openPolls=new Set(),openBallots=new Set();
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
 const nm=id=>(C[id]||{}).name||"?";
@@ -43,6 +43,8 @@ onAuthStateChanged(auth,user=>{
   subs.push(onSnapshot(collection(db,"ballots"),s=>{$("msg").textContent="";B=s.docs.map(d=>({...d.data(),_ref:d.ref,_id:d.id}));render()},bad));
   subs.push(onSnapshot(collection(db,"voters"),s=>{V={};s.docs.forEach(d=>V[d.id]=d.data().name);render()},()=>{}));
   subs.push(onSnapshot(collection(db,"contestants"),s=>{C={};s.docs.forEach(d=>C[d.id]=d.data());render()},()=>{}));
+  subs.push(onSnapshot(collection(db,"reviews"),s=>{RV={};s.docs.forEach(d=>RV[d.id]=d.data());render()},()=>{}));
+  subs.push(onSnapshot(collection(db,"restrictions"),s=>{RS=s.docs.map(d=>({...d.data(),_id:d.id}));render()},()=>{}));
   subs.push(onSnapshot(doc(db,"state","current"),s=>{S=s.exists()?s.data():null;render()},()=>{}));
 });
 
@@ -133,41 +135,85 @@ function flags(list){
   return out;
 }
 
+const ms=b=>b.at&&b.at.toMillis?b.at.toMillis():0;
+const review=b=>{const r=RV[b._id];return r&&r.at===ms(b)?r:null};
+async function setReview(b,patch){
+  const cur=review(b)||{};
+  try{await setDoc(doc(db,"reviews",b._id),{mark:cur.mark||null,ignored:!!cur.ignored,...patch,at:ms(b)})}
+  catch{$("msg").textContent="Couldn\u2019t save. Make sure the updated rules are published."}
+}
+async function discard(b){
+  const who=V[b.uid]||"this voter",rd=b.round!==undefined;
+  if(!confirm("Discard "+who+"\u2019s ballot"+(rd?" and stop them voting in poll "+b.round:"")+"? The ballot is deleted from the database and can\u2019t be recovered."))return;
+  try{
+    const wb=writeBatch(db);wb.delete(b._ref);wb.delete(doc(db,"reviews",b._id));
+    if(rd)wb.set(doc(db,"restrictions","r"+b.round+"_"+b.uid),{round:b.round,uid:b.uid,at:serverTimestamp()});
+    await wb.commit();
+  }catch{$("msg").textContent="Couldn\u2019t discard. Make sure the updated rules are published."}
+}
+async function lift(r){
+  if(!confirm("Let "+(V[r.uid]||"this voter")+" vote in poll "+r.round+" again?"))return;
+  try{await deleteDoc(doc(db,"restrictions",r._id))}catch{$("msg").textContent="Couldn\u2019t lift the restriction."}
+}
+function btn(label,fn,danger){const x=el("button","btn small",label);x.type="button";x.onclick=fn;if(danger){x.style.color="var(--c-bottom)";x.style.borderColor="var(--c-bottom)"}return x}
+
 function render(){
   const P=$("polls");P.innerHTML="";
-  const groups={};B.forEach(b=>{const k=b.round!==undefined?String(b.round):"old";(groups[k]=groups[k]||[]).push(b)});
+  const groups={};
+  B.forEach(b=>{const k=b.round!==undefined?String(b.round):"old";(groups[k]=groups[k]||[]).push(b)});
+  RS.forEach(r=>{const k=String(r.round);groups[k]=groups[k]||[]});
   const keys=Object.keys(groups).sort((a,b)=>a==="old"?1:b==="old"?-1:Number(b)-Number(a));
   if(!keys.length){P.append(el("p","sub","No ballots yet."));return}
   keys.forEach(k=>{
     const list=groups[k].slice().sort((a,b)=>(V[a.uid]||"").localeCompare(V[b.uid]||""));
-    const fl=k==="old"?new Map():flags(list);const nflag=[...fl.values()].filter(x=>x.length).length;
-    list.sort((a,b)=>((fl.get(b._id)||[]).length>0)-((fl.get(a._id)||[]).length>0));
-    const first=list[0],cur=S&&String(S.round)===k;
+    const fl=k==="old"?new Map():flags(list),cur=S&&String(S.round)===k,info=new Map();
+    list.forEach(b=>{
+      const rv=review(b),auto=fl.get(b._id)||[];
+      const manual=!!(rv&&rv.mark==="flagged"),cleared=!!(rv&&rv.mark==="cleared");
+      info.set(b._id,{manual,cleared,auto,ign:!!(rv&&rv.ignored),stale:!!RV[b._id]&&!rv,
+        isFlag:manual||(auto.length>0&&!cleared),why:(manual?["Flagged by you"]:[]).concat(auto.length&&!cleared?auto:[])});
+    });
+    const nflag=list.filter(b=>info.get(b._id).isFlag).length,nign=list.filter(b=>info.get(b._id).ign).length;
+    list.sort((a,b)=>info.get(b._id).isFlag-info.get(a._id).isFlag);
+    const rs=RS.filter(r=>String(r.round)===k),first=list[0];
+    const ep=first?first.ep:(cur?S.ep:"?"),md=first?first.mode:(cur?S.mode:"");
     const det=el("details","poll");det.open=openPolls.has(k);
     det.addEventListener("toggle",()=>{det.open?openPolls.add(k):openPolls.delete(k)});
     const sm=el("summary","psum"),left=el("div");
-    left.append(el("strong","",k==="old"?"Earlier ballots":"Poll "+k+" \u00b7 Episode "+first.ep+" \u00b7 "+(MODE[first.mode]||first.mode)));
-    const meta=list.length+" ballot"+(list.length===1?"":"s")+(cur?(S.open?" \u00b7 open now":" \u00b7 locked"):"")+(nflag?" \u00b7 "+nflag+" flagged":"");
-    left.append(el("div","hint",meta));
+    left.append(el("strong","",k==="old"?"Earlier ballots":"Poll "+k+" \u00b7 Episode "+ep+(md?" \u00b7 "+(MODE[md]||md):"")));
+    left.append(el("div","hint",list.length+" ballot"+(list.length===1?"":"s")+(cur?(S.open?" \u00b7 open now":" \u00b7 locked"):"")+(nflag?" \u00b7 "+nflag+" flagged":"")+(nign?" \u00b7 "+nign+" ignored":"")+(rs.length?" \u00b7 "+rs.length+" restricted":"")));
     sm.append(left);det.append(sm);
     const body=el("div");body.style.padding="0 16px 14px";
     if(cur&&S.title)body.append(el("p","chal",S.title));
-    if(k!=="old"&&list.length<MIN)body.append(el("p","hint","Ballots are only checked for unusual votes once a poll has "+MIN+" or more."));
+    if(!list.length)body.append(el("p","hint","No ballots in this poll."));
+    else if(k!=="old"&&list.length<MIN)body.append(el("p","hint","Ballots are only checked for unusual votes once a poll has "+MIN+" or more."));
     list.forEach(b=>{
-      const d=el("details","entry");const key=k+"/"+b._id;d.open=openBallots.has(key);
+      const x=info.get(b._id),d=el("details","entry"),key=k+"/"+b._id;d.open=openBallots.has(key);
       d.addEventListener("toggle",()=>{d.open?openBallots.add(key):openBallots.delete(key)});
-      const s=el("summary","esum");
-      const why=fl.get(b._id)||[],nw=el("span");nw.append(el("strong","",V[b.uid]||"Unknown voter"));
-      if(why.length){const f=el("span","flag","Flagged");f.style.marginLeft="10px";nw.append(f)}
-      s.append(nw);
-      s.append(el("span","hint",b.at&&b.at.toDate?b.at.toDate().toLocaleString([],{dateStyle:"medium",timeStyle:"short"}):""));
+      const s=el("summary","esum"),nw=el("span");
+      nw.append(el("strong","",V[b.uid]||"Unknown voter"));
+      if(x.isFlag){const f=el("span","flag","Flagged");f.style.marginLeft="10px";nw.append(f)}
+      if(x.ign){const f=el("span","flag dim","Ignored");f.style.marginLeft="8px";nw.append(f)}
+      s.append(nw,el("span","hint",b.at&&b.at.toDate?b.at.toDate().toLocaleString([],{dateStyle:"medium",timeStyle:"short"}):""));
       const dd=detail(b);
-      if(why.length){const w=el("div","why");w.append(el("strong","","Why it was flagged"));const ul=el("ul");ul.style.cssText="margin:6px 0 0;padding-left:18px";why.forEach(t=>ul.append(el("li","",t)));w.append(ul);dd.prepend(w)}
+      if(x.why.length){const w=el("div","why");w.append(el("strong","","Why it was flagged"));const ul=el("ul");ul.style.cssText="margin:6px 0 0;padding-left:18px";x.why.forEach(t=>ul.append(el("li","",t)));w.append(ul);dd.prepend(w)}
+      if(x.cleared&&x.auto.length)dd.prepend(el("p","hint","You cleared the automatic flag on this ballot."));
+      if(x.stale)dd.prepend(el("p","hint","This ballot was changed after you last reviewed it, so earlier flags and ignores no longer apply."));
+      const act=el("div","row");act.style.cssText="justify-content:flex-start;gap:8px;margin-top:10px;flex-wrap:wrap";
+      act.append(
+        x.isFlag?btn("Clear flag",()=>setReview(b,{mark:"cleared"})):btn("Flag",()=>setReview(b,{mark:"flagged"})),
+        x.ign?btn("Count again",()=>setReview(b,{ignored:false})):btn("Ignore in results",()=>setReview(b,{ignored:true})),
+        btn(b.round!==undefined?"Discard + Restrict":"Discard",()=>discard(b),true));
+      dd.append(act);
       d.append(s,dd);body.append(d);
     });
-    const del=el("button","btn small","Delete this poll\u2019s ballots");del.type="button";del.style.marginTop="12px";
-    del.onclick=()=>removePoll(k,list);
-    body.append(del);det.append(body);P.append(det);
+    if(rs.length){
+      const g=el("div","grp");g.style.marginTop="14px";g.append(el("strong","","Restricted from this poll"));
+      rs.forEach(r=>{const row=el("div","row");row.style.marginTop="6px";row.append(el("span","",V[r.uid]||"Unknown voter"),btn("Lift restriction",()=>lift(r)));g.append(row)});
+      body.append(g);
+    }
+    if(list.length){const del=el("button","btn small","Delete this poll\u2019s ballots");del.type="button";del.style.marginTop="12px";del.onclick=()=>removePoll(k,list);body.append(del)}
+    det.append(body);P.append(det);
   });
 }
 </script></body></html>

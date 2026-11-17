@@ -30,7 +30,7 @@ const MODE={placements:"Placements",lipsync:"Lip sync",winner:"Winner vote",grou
 const HELP={winner:"Who should win? Pick one.",gohome:"Who should go home? Pick one."};
 const ORDER=["win","high","low","bottom"],LABEL={win:"Win",high:"High",safe:"Safe",low:"Low",bottom:"Bottom"};
 const calm=matchMedia("(prefers-reduced-motion: reduce)").matches;
-let S=null,home=null,aw=null,wa=null,wb=null,order=[],touched=false,best=null,C={},cUnsub=null,me=null,sel={win:[],high:[],low:[],bottom:[]},choice=null,lw=[],lcount=1,step=0,added=null,saved=false,dirty=false,loadedRound=null,unsub=null,vUnsub=null;
+let S=null,restricted=false,rUnsub=null,home=null,aw=null,wa=null,wb=null,order=[],touched=false,best=null,C={},cUnsub=null,me=null,sel={win:[],high:[],low:[],bottom:[]},choice=null,lw=[],lcount=1,step=0,added=null,saved=false,dirty=false,loadedRound=null,unsub=null,vUnsub=null;
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
 
 $("go").onclick=async()=>{$("lerr").textContent="";
@@ -40,7 +40,7 @@ $("c").onkeydown=e=>{if(e.key==="Enter")$("go").click()};
 $("out").onclick=()=>signOut(auth);
 
 onAuthStateChanged(auth,async user=>{
-  if(unsub){unsub();unsub=null}if(vUnsub){vUnsub();vUnsub=null}if(cUnsub){cUnsub();cUnsub=null}
+  if(unsub){unsub();unsub=null}if(vUnsub){vUnsub();vUnsub=null}if(cUnsub){cUnsub();cUnsub=null}if(rUnsub){rUnsub();rUnsub=null}restricted=false;
   $("login").hidden=!!user;$("app").hidden=!user;$("out").hidden=!user;$("hi").textContent="";
   if(!user)return;
   const v=await getDoc(doc(db,"voters",user.uid));
@@ -50,7 +50,7 @@ onAuthStateChanged(auth,async user=>{
   cUnsub=onSnapshot(collection(db,"contestants"),s=>{C={};s.docs.forEach(d=>C[d.id]=d.data());if(S)render()});
   unsub=onSnapshot(doc(db,"state","current"),async s=>{
     S=s.data();
-    if(S&&loadedRound!==S.round){loadedRound=S.round;await loadBallot()}
+    if(S&&loadedRound!==S.round){loadedRound=S.round;watchRestrict();await loadBallot()}
     render();
   });
 });
@@ -82,11 +82,13 @@ async function loadBallot(){
   else choice=opts().includes(d.choice)?d.choice:null;
 }
 
+function watchRestrict(){if(rUnsub)rUnsub();restricted=false;rUnsub=onSnapshot(doc(db,"restrictions","r"+S.round+"_"+me.uid),s=>{restricted=s.exists();if(S)render()},()=>{})}
 function msg(t){$("msg").textContent=t;$("poll").hidden=true}
 function render(){
   $("msg").textContent="";
   if(!S||!S.round)return msg("Nothing is open yet. Check back soon.");
   if(me.canVote===false)return msg("You\u2019re not voting this round.");
+  if(restricted)return msg("Your ballot for this round was discarded, so you can\u2019t vote in it. Message the admin if you think this is a mistake.");
   if(!S.open)return msg("Voting is closed. Results are posted in the server.");
   const P=$("poll");P.hidden=false;P.innerHTML="";
   if(S.note){const bn=el("div","banner",S.note);bn.setAttribute("role","note");P.append(bn)}
